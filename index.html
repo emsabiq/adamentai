@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Adamentai</title>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="styles.css">
+  <!-- Badges (opsional, dipakai untuk label kecil) -->
+  <style>
+    .badge{display:inline-block;padding:.15rem .45rem;border-radius:.5rem;font-size:.775rem}
+    .badge--best{background:#fef3c7}
+    .badge--strip{background:#dbeafe}
+    .badge--promo{background:#dcfce7}
+  </style>
+
+  <!-- Meta theme -->
+  <meta name="theme-color" content="#0ea5e9">
+</head>
+<body>
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <div class="brand">
+      <img class="brand__logo" src="data:image/svg+xml;utf8,
+        <svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'>
+          <rect rx='6' width='28' height='28' fill='%230ea5e9'/>
+          <path d='M7 18l4-8 4 8 3-6 3 6' stroke='white' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/>
+        </svg>" alt="logo">
+      <div class="brand__name">Adamentai</div>
+    </div>
+
+    <nav class="topnav" role="tablist" aria-label="Halaman">
+      <button class="tab is-active" data-tab="order" aria-selected="true">Order</button>
+      <button class="tab" data-tab="admin" aria-selected="false">Admin</button>
+    </nav>
+
+    <div class="actions">
+      <button id="btnOpenCart" class="icon-btn" aria-label="Buka Keranjang">
+        <span class="icon-cart"></span>
+        <span id="cartCount" class="badge">0</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <!-- ======== SECTION: ORDER ======== -->
+    <section id="section-order" class="section is-active" aria-labelledby="order-title">
+      <h1 id="order-title" class="hidden">Order</h1>
+
+      <!-- Toolbar: Search + Chips -->
+      <div class="toolbar">
+        <div class="searchbox">
+          <span class="icon-search" aria-hidden="true"></span>
+          <input id="q" type="search" placeholder="Cari menu atau kategori…" aria-label="Cari">
+          <button id="btnClearSearch" class="link" hidden><span class="icon-x"></span> Bersihkan</button>
+        </div>
+      </div>
+
+      <div class="chips-scroll" role="tablist" aria-label="Kategori">
+        <div id="chipsCatMount"></div>
+      </div>
+
+      <!-- Grid 2 kolom (produk + cart) -->
+      <div class="grid grid--main">
+
+        <!-- Kolom produk -->
+        <div>
+
+          <!-- BEST SELLER (3 x 1) -->
+          <section id="sec-best" aria-labelledby="best-title">
+            <h3 id="best-title" style="margin:12px 4px">Best Seller</h3>
+            <div id="bestGrid" class="cards"></div>
+          </section>
+
+          <!-- MENU NORMAL (2 x 2 atau sesuai responsif CSS) -->
+          <section id="sec-menu" aria-labelledby="menu-title">
+            <h3 id="menu-title" style="margin:12px 4px">Menu</h3>
+            <div id="menuGrid" class="cards"></div>
+            <div id="menuEmpty" class="muted" hidden style="margin:12px 4px">Tidak ada menu untuk filter/kata kunci ini.</div>
+          </section>
+
+          <!-- STRIP 1 x 4 (card melebar) -->
+          <section id="sec-strip" aria-labelledby="strip-title">
+            <h3 id="strip-title" style="margin:12px 4px">Paket & Promo</h3>
+            <div id="stripGrid" class="cards"></div>
+          </section>
+
+        </div>
+
+        <!-- Aside: Cart (desktop) -->
+        <aside class="cart hide-mobile" aria-label="Keranjang Belanja">
+          <div class="card card--menu">
+            <div class="card__body">
+              <div class="card__head">
+                <div style="font-weight:800">Keranjang</div>
+                <button id="btnEmptyCart" class="link danger">Kosongkan</button>
+              </div>
+
+              <div id="cartItems" class="cart__items"></div>
+
+              <!-- Ringkasan -->
+              <div class="cart__summary">
+                <div class="row">
+                  <span>Subtotal</span>
+                  <strong id="cartSubtotal" data-cart-subtotal>Rp0</strong>
+                </div>
+
+                <div class="row" style="display:flex;align-items:center;gap:8px">
+                  <span>Kode Promo</span>
+                  <div class="input-group" style="margin-left:auto;max-width:360px;flex:1;justify-content:flex-end">
+                    <input id="promo_code" placeholder="Masukkan kode" style="max-width:160px">
+                    <button id="btnPromo" class="btn btn--ghost">Terapkan</button>
+                    <button id="btnPromoClear" class="btn btn--ghost danger" hidden>Hapus</button>
+                  </div>
+                </div>
+
+                <div class="row" style="margin-top:2px">
+                  <span>Diskon</span>
+                  <strong id="cartDiscount" data-cart-discount>-Rp0</strong>
+                </div>
+                <div class="row">
+                  <span>Total</span>
+                  <div style="display:flex;flex-direction:column;align-items:flex-end">
+                    <strong id="cartTotal" data-cart-total>Rp0</strong>
+                    <small id="cartTotalNote" class="muted"></small>
+                  </div>
+                </div>
+                <div id="promoApplied" class="tiny muted" hidden style="margin-top:6px"></div>
+              </div>
+
+              <!-- Data Customer (DESKTOP) -->
+              <details class="collapsible" open>
+                <summary>Data Pelanggan</summary>
+                <div class="form" style="margin-top:8px">
+                  <div class="field"><span>Nama *</span><input id="cust_name" placeholder="Nama *" required></div>
+                  <div class="field"><span>No. HP *</span><input id="cust_phone" inputmode="tel" placeholder="08xxxx" required></div>
+                  <div class="field"><span>Alamat *</span><textarea id="cust_addr" rows="3" placeholder="Alamat lengkap *" required></textarea></div>
+                  <div class="field"><span>Catatan</span><input id="cust_note" placeholder="Opsional"></div>
+                </div>
+              </details>
+
+              <button id="btnCheckout" class="btn btn--primary btn--block">Bayar</button>
+            </div>
+          </div>
+        </aside>
+
+      </div>
+    </section>
+
+    <!-- ======== SECTION: ADMIN ======== -->
+    <section id="section-admin" class="section" aria-labelledby="admin-title">
+      <h1 id="admin-title" class="hidden">Admin</h1>
+
+      <!-- Gate (PIN) -->
+      <div id="adminGate" class="card">
+        <div class="card__body">
+          <h3 style="margin:0 0 10px">Masuk Admin</h3>
+          <div class="form" style="max-width:360px">
+            <div class="field">
+              <span>PIN</span>
+              <input id="pin" type="password" placeholder="****">
+            </div>
+            <div class="actions-row">
+              <button id="btnAdminLogin" class="btn btn--primary">Masuk</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel Admin -->
+      <div id="adminPanel" class="hidden">
+        <div class="card">
+          <div class="card__body">
+            <!-- Subtabs -->
+            <div class="subtabs">
+              <button class="subtab is-active" data-sub="menu">Menu</button>
+              <button class="subtab" data-sub="kategori">Kategori</button>
+              <button class="subtab" data-sub="stok">Stok</button>
+              <button class="subtab" data-sub="promo">Promo</button>
+            </div>
+
+            <!-- SUB: MENU -->
+            <section id="sub-menu" class="sub is-active">
+              <div class="grid--2cols">
+                <!-- Form -->
+                <div>
+                  <h4 style="margin:0 0 10px">Tambah / Edit Menu</h4>
+                  <div class="form">
+                    <input type="hidden" id="m_id">
+                    <div class="field"><span>Nama</span><input id="m_name" placeholder="Nama menu"></div>
+                    <div class="field"><span>Kategori</span><select id="m_cat"></select></div>
+                    <div class="field"><span>Harga</span><input id="m_price" type="number" placeholder="0"></div>
+                    <div class="field"><span>Stok</span><input id="m_stock" type="number" placeholder="0"></div>
+                    <div class="field">
+                      <span>Aktif</span>
+                      <select id="m_active">
+                        <option value="Y">Y</option><option value="N">N</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <span>Foto</span>
+                      <div class="preview">
+                        <input id="m_img" type="file" accept="image/*">
+                        <img id="m_prev" class="thumb hidden" alt="preview">
+                        <button id="btnClearImg" class="btn btn--ghost hidden">Bersihkan</button>
+                        <input id="m_image_url" type="text" placeholder="Atau URL gambar" style="flex:1">
+                      </div>
+                    </div>
+                    <div class="actions-row">
+                      <button id="btnMenuSave" class="btn btn--primary">Simpan</button>
+                      <button id="btnMenuReset" class="btn btn--ghost">Reset</button>
+                    </div>
+                  </div>
+                </div>
+                <!-- Tabel -->
+                <div>
+                  <h4 style="margin:0 0 10px">Daftar Menu</h4>
+                  <div class="table-wrap">
+                    <table class="table" id="tblMenu">
+                      <thead>
+                        <tr><th>Nama</th><th>Kategori</th><th>Harga</th><th>Stok</th><th>Aktif</th><th>Aksi</th></tr>
+                      </thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- SUB: KATEGORI -->
+            <section id="sub-kategori" class="sub">
+              <div class="grid--2cols">
+                <div>
+                  <h4 style="margin:0 0 10px">Tambah / Edit Kategori</h4>
+                  <div class="form">
+                    <input type="hidden" id="c_id">
+                    <div class="field"><span>Nama Kategori</span><input id="c_name" placeholder="Mis. Minuman"></div>
+                    <div class="actions-row">
+                      <button id="btnCatSave" class="btn btn--primary">Simpan</button>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <h4 style="margin:0 0 10px">Daftar Kategori</h4>
+                  <div class="table-wrap">
+                    <table class="table" id="tblCat">
+                      <thead><tr><th>Nama</th><th>Aksi</th></tr></thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- SUB: STOK -->
+            <section id="sub-stok" class="sub">
+              <div class="grid--2cols">
+                <div>
+                  <h4 style="margin:0 0 10px">Penyesuaian Stok</h4>
+                  <div class="form">
+                    <div class="field"><span>Item</span><select id="s_item"></select></div>
+                    <div class="field"><span>Delta (+/-)</span><input id="s_delta" type="number" placeholder="contoh: 5 atau -2"></div>
+                    <div class="field"><span>Catatan</span><input id="s_note" placeholder="opsional"></div>
+                    <div class="actions-row"><button id="btnStockSave" class="btn btn--primary">Update Stok</button></div>
+                  </div>
+                </div>
+                <div>
+                  <p class="muted">Pilih item lalu isi delta positif (tambah) atau negatif (kurangi). Riwayat otomatis tercatat di sheet <em>StokLog</em>.</p>
+                </div>
+              </div>
+            </section>
+
+            <!-- SUB: PROMO -->
+            <section id="sub-promo" class="sub">
+              <div class="grid--2cols">
+                <div>
+                  <h4 style="margin:0 0 10px">Kelola Promo</h4>
+                  <div class="form">
+                    <input type="hidden" id="p_id">
+                    <div class="field"><span>Kode</span><input id="p_code" placeholder="mis. HEMAT10"></div>
+                    <div class="field">
+                      <span>Tipe</span>
+                      <select id="p_type">
+                        <option value="percent">Persen (%)</option>
+                        <option value="flat">Potongan (Rp)</option>
+                      </select>
+                    </div>
+                    <div class="field"><span>Nilai</span><input id="p_value" type="number" placeholder="10 atau 5000"></div>
+                    <div class="field"><span>Min. Subtotal</span><input id="p_min" type="number" placeholder="0"></div>
+                    <div class="field"><span>Mulai</span><input id="p_start" type="date"></div>
+                    <div class="field"><span>Selesai</span><input id="p_end" type="date"></div>
+                    <div class="field">
+                      <span>Status</span>
+                      <select id="p_active">
+                        <option value="Y">Aktif</option>
+                        <option value="N">Nonaktif</option>
+                      </select>
+                    </div>
+                    <div class="field"><span>Catatan</span><input id="p_note" placeholder="opsional"></div>
+                    <div class="actions-row">
+                      <button id="btnPromoSave" class="btn btn--primary">Simpan</button>
+                      <button id="btnPromoReset" class="btn btn--ghost">Reset</button>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <h4 style="margin:0 0 10px">Daftar Promo</h4>
+                  <div class="table-wrap">
+                    <table class="table" id="tblPromo">
+                      <thead>
+                        <tr><th>Kode</th><th>Tipe</th><th>Nilai</th><th>Min</th><th>Periode</th><th>Aktif</th><th>Aksi</th></tr>
+                      </thead>
+                      <tbody></tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Mobile bottom bar -->
+  <div class="mobile-bar show-mobile" role="region" aria-label="Ringkasan">
+    <button id="btnOpenCartBar" class="mobile-cart" aria-label="Buka Keranjang">
+      <span class="icon-cart"></span>
+      <span class="label">Keranjang</span>
+      <span id="cartCountBar" class="badge">0</span>
+    </button>
+    <div class="mobile-total">
+      <div class="small">Total</div>
+      <div id="mobileTotal" data-cart-total style="font-weight:800">Rp0</div>
+    </div>
+    <button id="btnCheckoutBar" class="btn btn--primary" disabled>Bayar</button>
+  </div>
+
+  <!-- Drawer: Mobile Cart -->
+  <div id="cartDrawer" class="drawer" aria-hidden="true" aria-modal="true" role="dialog">
+    <div id="drawerScrim" class="drawer__scrim"></div>
+    <div class="drawer__panel">
+      <div class="drawer__head">
+        <strong>Keranjang</strong>
+        <button id="btnCloseCart" class="icon-btn" aria-label="Tutup">
+          <span class="icon-x"></span>
+        </button>
+      </div>
+
+      <div class="drawer__customer">
+        <!-- Promo (mobile) -->
+        <div class="form" style="margin-bottom:8px">
+          <div class="field" style="display:flex;align-items:center;gap:8px">
+            <span>Kode Promo</span>
+            <div class="input-group" style="margin-left:auto">
+              <input id="promo_code_m" placeholder="Kode">
+              <button id="btnPromo_m" class="btn btn--ghost">Terapkan</button>
+              <button id="btnPromoClear_m" class="btn btn--ghost danger" hidden>Hapus</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Items -->
+        <div id="cartItemsMobile" class="cart__items"></div>
+
+        <!-- Ringkasan (mobile) -->
+        <div class="drawer-summary" style="margin:8px 0 4px">
+          <div><span>Subtotal</span> <span data-cart-subtotal>Rp0</span></div>
+          <div><span>Diskon</span>   <span data-cart-discount>-Rp0</span></div>
+        </div>
+
+        <!-- Data Customer (MOBILE) -->
+        <details class="collapsible">
+          <summary>Data Pelanggan</summary>
+          <div class="form" style="margin-top:8px">
+            <div class="field"><span>Nama *</span><input id="cust_name_m" placeholder="Nama *" required></div>
+            <div class="field"><span>No. HP *</span><input id="cust_phone_m" inputmode="tel" placeholder="08xxxx" required></div>
+            <div class="field"><span>Alamat *</span><textarea id="cust_addr_m" rows="3" placeholder="Alamat lengkap *" required></textarea></div>
+            <div class="field"><span>Catatan</span><input id="cust_note_m" placeholder="Opsional"></div>
+          </div>
+        </details>
+      </div>
+
+      <div class="drawer__foot">
+        <div class="total">
+          <span class="small">Total</span>
+          <!-- Tidak pakai id "mobileTotal" agar tidak duplikat; gunakan hook data-cart-total -->
+          <strong data-cart-total>Rp0</strong>
+          <small id="cartTotalNoteMobile" class="muted" style="display:block"></small>
+        </div>
+        <button id="btnCheckoutMobile" class="btn btn--primary" disabled>Bayar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Templates -->
+  <template id="tpl-card">
+    <article class="card card--menu">
+      <img class="card__img" alt="menu">
+      <div class="card__body">
+        <div class="card__title"></div>
+        <div class="card__meta"></div>
+        <div class="card__price"></div>
+        <div class="qtyrow">
+          <input class="qty" type="number" min="1" value="1" aria-label="Jumlah">
+          <button class="btn btn--primary add-btn">Tambah</button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <template id="tpl-cart-item">
+    <div class="cart__row">
+      <div class="cart__name">Nama</div>
+      <div class="cart__qty">× 1</div>
+      <div class="cart__sub">Rp0</div>
+      <button class="btn btn--ghost cart__del" aria-label="Hapus">×</button>
+    </div>
+  </template>
+
+  <!-- Snackbar -->
+  <div id="snackbar" class="snackbar" role="status" aria-live="polite"></div>
+
+  <!-- Scripts -->
+  <script src="app.js"></script>
+</body>
+</html>
