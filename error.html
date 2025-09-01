@@ -81,7 +81,7 @@
     if(el) el.textContent = order || 'Tanpa Nomor (isi ?order=...)';
 
     // Build WA link
-    const waNumber = '6285156042869'; // 085156042869
+    const waNumber = '6281370984926'; // 081370984926
     const baseMsg = `Assalamu'alaikum. Pesanan saya${order?` ${order}`:''} berstatus cancel karena back saat pembayaran. Mohon bantuan.`;
     const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(baseMsg)}`;
     const waLink = document.getElementById('waLink');
