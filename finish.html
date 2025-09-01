@@ -95,7 +95,7 @@ How to use:
       <div class="panel">
         <h3 style="margin:4px 0 8px;font-size:clamp(16px,1.6vw,20px)">Apa selanjutnya?</h3>
         <ol class="list" style="list-style:none;padding:0;counter-reset:step">
-          <li><span style="opacity:.85">1.</span> Tekan tombol <strong>WhatsApp</strong> untuk chat ke <strong>0851‑5604‑2869</strong>.</li>
+          <li><span style="opacity:.85">1.</span> Tekan tombol <strong>WhatsApp</strong> untuk chat ke <strong>0813‑7098‑4926</strong>.</li>
           <li><span style="opacity:.85">2.</span> Sampaikan <em>Nomor Pesanan</em> & alamat pengiriman.</li>
           <li><span style="opacity:.85">3.</span> Kami hitungkan ongkir & konfirmasi ketersediaan produk.</li>
         </ol>
@@ -124,7 +124,7 @@ How to use:
   if(orderEl) orderEl.textContent = order || 'Tanpa Nomor (isi ?order=...)';
 
   // --- Buat link WhatsApp ---
-  const waNumber = '6285156042869'; // 085156042869
+  const waNumber = '6281370984926'; // 081370984926
   const baseMsg = `Assalamu'alaikum. Saya ingin konfirmasi pesanan${order?` ${order}`:''} dan biaya pengiriman.`;
   const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(baseMsg)}`;
   const waLink = document.getElementById('waLink');
@@ -234,7 +234,7 @@ Error page for cancelled orders
     const el = document.getElementById('orderIdErr');
     if(el) el.textContent = order || 'Tanpa Nomor (isi ?order=...)';
 
-    const waNumber = '6285156042869';
+    const waNumber = '6281370984926';
     const baseMsg = `Assalamu'alaikum. Pesanan saya${order?` ${order}`:''} berstatus cancel karena back saat pembayaran. Mohon bantuan.`;
     const waUrl = `https://wa.me/${waNumber}?text=${encodeURIComponent(baseMsg)}`;
     const waLink = document.getElementById('waLinkErr');
