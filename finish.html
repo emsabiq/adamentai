@@ -1,0 +1,117 @@
+<!-- ===============================
+File: thank-you.html
+Responsive Thank You Page + WhatsApp CTA
+How to use:
+- Optional: append ?order=INV-2025-0001 to the URL to show the order number.
+- Deployed as a static page anywhere (Vercel, Netlify, shared hosting).
+=================================== -->
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Terima kasih – Pesanan Diterima</title>
+  <meta name="description" content="Terima kasih! Pesanan Anda telah kami terima. Silakan konfirmasi via WhatsApp untuk validasi pesanan dan biaya pengiriman."/>
+  <style>
+  :root{
+    --primary:#356f6b;
+    --text:#0f1b18;
+    --muted:#5b6b67;
+    --bg:#f7faf9;
+    --card:#ffffff;
+    --border:#e6eeec;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+  .container{min-height:100%;display:grid;place-items:center;padding:24px}
+  .card{width:min(920px,96vw);background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 2px 12px rgba(0,0,0,.06);padding:clamp(18px,3.2vw,32px);}
+  .header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .icon-wrap{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:#eef4f3;border:1px solid var(--border)}
+  .icon{width:24px;height:24px}
+  h1{margin:0;font-size:clamp(20px,2.2vw,30px);letter-spacing:.2px}
+  .lead{margin:.35rem 0 0;color:#3a4a47;font-size:clamp(14px,1.2vw,16px)}
+  .grid{display:grid;grid-template-columns:1fr;gap:16px;margin-top:18px}
+  @media(min-width:720px){.grid{grid-template-columns:1.2fr .8fr}}
+  .panel{background:#fafdfc;border:1px solid var(--border);border-radius:12px;padding:14px}
+  .order-line{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .order-id{font-weight:700;letter-spacing:.2px}
+  .copy{appearance:none;border:1px solid var(--border);background:#fff;color:var(--text);padding:8px 12px;border-radius:10px;cursor:pointer}
+  .cta{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+  .btn{display:inline-flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;border:1px solid transparent;text-decoration:none;font-weight:700}
+  .btn.wa{background:var(--primary);color:#fff}
+  .btn.wa:hover{filter:brightness(.95)}
+  .btn.ghost{background:#fff;border-color:var(--border);color:var(--text)}
+  .list{display:grid;gap:8px;margin:8px 0 0;color:#2c3a37}
+  .footer{margin-top:18px;font-size:12px;color:#4b5b58}
+  .foot-links{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+  .foot-links a{color:#2b5f59}
+</style>
+</head>
+<body>
+<div class="container">
+  <main class="card" role="main">    <header class="header">
+      <div class="icon-wrap" aria-hidden="true">
+        <!-- Check icon -->
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      </div>
+      <div>
+        <h1>Terima kasih! Pesanan Anda kami terima.</h1>
+        <p class="lead">Langkah selanjutnya: silakan konfirmasi pesanan & biaya pengiriman via WhatsApp agar pesanan segera diproses.</p>
+      </div>
+    </header>
+
+    <section class="grid" aria-label="Detail & Tindak Lanjut">
+      <div class="panel">
+        <div class="order-line">
+          <div>
+            <div style="opacity:.8;font-size:12px">Nomor Pesanan</div>
+            <div id="orderId" class="order-id">—</div>
+          </div>
+          <button class="copy" id="copyBtn" type="button" aria-label="Salin nomor pesanan">Salin</button>
+        </div>
+        <ul class="list">
+          <li>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4m0-4h.01"/></svg>
+            Simpan nomor pesanan untuk memudahkan verifikasi.
+          </li>
+          <li>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 1 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            Alamat & ongkir akan dikonfirmasi saat chat.
+          </li>
+        </ul>
+
+        <div class="cta">
+          <a id="waLink" class="btn wa" href="#" target="_blank" rel="noopener">
+            <!-- WA icon -->
+            <svg width="18" height="18" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true"><path d="M19.11 17.34c-.27-.14-1.58-.78-1.83-.86-.25-.09-.43-.14-.62.14-.18.27-.71.86-.86 1.03-.16.18-.32.2-.59.07-.27-.14-1.13-.42-2.16-1.36-.8-.7-1.35-1.57-1.5-1.84-.16-.27-.02-.41.12-.55.12-.12.27-.32.41-.48.14-.16.18-.27.27-.45.09-.18.05-.34-.02-.48-.07-.14-.62-1.5-.85-2.05-.22-.53-.44-.46-.62-.46h-.53c-.18 0-.48.07-.73.34-.25.27-.96.94-.96 2.29 0 1.34.99 2.64 1.14 2.82.14.18 1.95 2.98 4.73 4.17.66.28 1.17.45 1.57.58.66.21 1.26.18 1.73.11.53-.08 1.58-.65 1.81-1.28.23-.62.23-1.16.16-1.28-.07-.11-.25-.18-.52-.32z"/><path d="M26.64 5.36A12 12 0 0 0 4.36 27.64l.79.05.55.03a1 1 0 0 0 .72-.29l2.61-2.59a1 1 0 0 1 .74-.29h.45A12 12 0 0 0 26.64 5.36m-10.64 20A9.33 9.33 0 0 1 9 23.33l-.67-.4-2 .53.53-1.95-.4-.67a9.33 9.33 0 1 1 9.53 4.42z"/></svg>
+            Konfirmasi via WhatsApp
+          </a>
+          <a class="btn ghost" href="https://adamentai.vercel.app" target="_self">Kembali ke Beranda</a>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3 style="margin:4px 0 8px;font-size:clamp(16px,1.6vw,20px)">Apa selanjutnya?</h3>
+        <ol class="list" style="list-style:none;padding:0;counter-reset:step">
+          <li><span style="opacity:.85">1.</span> Tekan tombol <strong>WhatsApp</strong> untuk chat ke <strong>0851‑5604‑2869</strong>.</li>
+          <li><span style="opacity:.85">2.</span> Sampaikan <em>Nomor Pesanan</em> & alamat pengiriman.</li>
+          <li><span style="opacity:.85">3.</span> Kami hitungkan ongkir & konfirmasi ketersediaan produk.</li>
+        </ol>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div>Butuh bantuan lain? Hubungi kami lewat WhatsApp.</div>
+      <div class="foot-links">
+        <a href="https://adamentai.vercel.app" target="_self">adamentai.vercel.app</a>
+        <span aria-hidden="true">•</span>
+        <a id="footWa" href="#" target="_blank" rel="noopener">Chat WhatsApp</a>
+      </div>
+    </footer>
+  </main>
+</div>
+
+</body>
+</html>
