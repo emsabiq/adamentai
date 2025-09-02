@@ -6,6 +6,19 @@ import { State, Store, calcTotals } from './state.js';
 import { Api } from './api.js';
 
 /* =====================
+ * Helpers (minimum kupon)
+ * ===================== */
+function getCouponMin(cp){
+  if (!cp) return 0;
+  var cands = [cp.min, cp.min_subtotal, cp.min_total, cp.minimum, cp.minPurchase, cp.min_order];
+  for (var i=0; i<cands.length; i++){
+    var v = Number(cands[i]);
+    if (v > 0) return v;
+  }
+  return 0;
+}
+
+/* =====================
  * PROMO
  * ===================== */
 function togglePromoControls(){
@@ -29,6 +42,8 @@ function clearCoupon(){
   if (!State.coupon) return;
   State.coupon = null;
   togglePromoControls();
+  // sinkronkan tampilan cart
+  try{ import('./cart.js').then(function(m){ if (m && m.renderCart) m.renderCart(); }); }catch(_){}
   toast('Kode promo dihapus');
 }
 
@@ -57,8 +72,9 @@ async function applyCoupon(code){
         };
         var fb = fbmap[clean.toUpperCase()];
         if (fb){
-          State.coupon = { code: clean.toUpperCase(), type: fb.type, value: fb.value };
+          State.coupon = { code: clean.toUpperCase(), type: fb.type, value: fb.value, min: 0 };
           togglePromoControls();
+          try{ import('./cart.js').then(function(m){ if (m && m.renderCart) m.renderCart(); }); }catch(_){}
           toast('Kode promo diterapkan (fallback)');
           return;
         }
@@ -67,6 +83,7 @@ async function applyCoupon(code){
 
     State.coupon = null;
     togglePromoControls();
+    try{ import('./cart.js').then(function(m){ if (m && m.renderCart) m.renderCart(); }); }catch(_){}
     toast((res && res.error) || 'Kode promo tidak valid');
     return;
   }
@@ -74,15 +91,20 @@ async function applyCoupon(code){
   var data = res.data || res;
   var t = String(data.type || '').toLowerCase();
   var v = Number(data.value || 0);
+  var min = Number(data.min_subtotal || data.min_total || data.minimum || data.min || 0);
+
   if (!t || !(v > 0)){
     State.coupon = null;
     togglePromoControls();
+    try{ import('./cart.js').then(function(m){ if (m && m.renderCart) m.renderCart(); }); }catch(_){}
     toast('Respon promo tidak valid');
     return;
   }
 
-  State.coupon = { code: clean.toUpperCase(), type: t, value: v };
+  State.coupon = { code: clean.toUpperCase(), type: t, value: v, min: min };
   togglePromoControls();
+  // sinkronkan tampilan cart
+  try{ import('./cart.js').then(function(m){ if (m && m.renderCart) m.renderCart(); }); }catch(_){}
   toast('Kode promo diterapkan');
 }
 
@@ -226,6 +248,24 @@ async function checkout(desktop){
     // totals dari state (tanpa ongkir)
     var totals = calcTotals();
     var subtotal = totals.subtotal, discount = totals.discount, total = totals.total;
+
+    // Safety: cek minimum belanja lagi sebelum submit
+    var must = getCouponMin(State.coupon);
+    if (State.coupon && must > 0) {
+      // hitung ulang subtotal langsung dari keranjang (guard)
+      var _sub = (State.cart || []).reduce(function (s, c) {
+        return s + (Number(c.qty || 0) * Number(c.price || 0));
+      }, 0);
+      if (_sub < must){
+        State.coupon = null;
+        togglePromoControls();
+        toast('Diskon dibatalkan: subtotal di bawah minimum');
+        // Recompute totals tanpa kupon
+        totals = calcTotals();
+        subtotal = totals.subtotal; discount = totals.discount; total = totals.total;
+        try{ import('./cart.js').then(function(m){ if (m && m.renderCart) m.renderCart(); }); }catch(_){}
+      }
+    }
 
     // detail ongkir dari State.shipping (diisi oleh shipping.js)
     var ship = (State && State.shipping) ? State.shipping : (typeof window !== 'undefined' && window.State ? (window.State.shipping || {}) : {});
