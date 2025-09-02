@@ -19,6 +19,52 @@ function setMoneyText(el, val, strike){
   if (strike) el.innerHTML = '<s>' + money(val) + '</s>';
   else el.textContent = money(val);
 }
+function digitsToNumber(x){
+  var s = String(x == null ? '' : x).replace(/[^\d.-]/g,'');
+  var v = parseFloat(s);
+  return isNaN(v) ? 0 : v;
+}
+
+/* =================== Minimum belanja dari kupon =================== */
+function deepPickMin(obj){
+  var best = 0;
+  try{
+    if (!obj || typeof obj !== 'object') return 0;
+    var keys = Object.keys(obj);
+    for (var i=0;i<keys.length;i++){
+      var k = String(keys[i] || '').toLowerCase();
+      var v = obj[keys[i]];
+      if (typeof v === 'object' && v){
+        var d = deepPickMin(v);
+        if (d > best) best = d;
+      } else {
+        if (k === 'min' ||
+            k.indexOf('min_') === 0 ||
+            (k.indexOf('min') >= 0 && (
+              k.indexOf('subtotal') >= 0 ||
+              k.indexOf('total') >= 0 ||
+              k.indexOf('order') >= 0 ||
+              k.indexOf('belanja') >= 0 ||
+              k.indexOf('purchase') >= 0
+            ))) {
+          var num = digitsToNumber(v);
+          if (num > best) best = num;
+        }
+      }
+    }
+  }catch(_){}
+  return best;
+}
+function getCouponMin(cp){
+  if (!cp) return 0;
+  var cands = [cp.min, cp.min_subtotal, cp.min_total, cp.minimum, cp.minPurchase, cp.min_order, cp.min_belanja, cp.minimum_amount];
+  var best = 0;
+  for (var i=0; i<cands.length; i++){
+    var v = digitsToNumber(cands[i]);
+    if (v > best) best = v;
+  }
+  return best;
+}
 
 /* =================== Hitung totals (perhitungkan coupon) =================== */
 function calcTotalsLocal() {
@@ -26,8 +72,17 @@ function calcTotalsLocal() {
     return s + (Number(c.qty || 0) * Number(c.price || 0));
   }, 0);
 
-  var discount = 0;
+  // Cek eligibility minimum belanja (copot instan bila tidak memenuhi)
   var cp = State.coupon;
+  var must = getCouponMin(cp);
+  if (cp && must > 0 && subtotal < must) {
+    State.coupon = null;
+    if (typeof togglePromoControls === 'function') togglePromoControls();
+    toast('Diskon dibatalkan: subtotal di bawah minimum');
+    cp = null;
+  }
+
+  var discount = 0;
   if (cp) {
     if (cp.type === 'percent') discount = Math.floor(subtotal * (Number(cp.value) || 0) / 100);
     if (cp.type === 'flat')    discount = Math.min(subtotal, Number(cp.value) || 0);
@@ -73,6 +128,9 @@ export async function applyCoupon(rawCode) {
   var data  = res.data || res;
   var type  = String(data.type || '').toLowerCase();
   var value = Number(data.value || 0);
+  var min1  = digitsToNumber(data.min_subtotal || data.min_total || data.minimum || data.min || data.minimum_amount || data.min_order || data.min_belanja);
+  var min2  = deepPickMin(data);
+  var min   = Math.max(min1, min2, 0);
 
   if (!type || !(value > 0)) {
     State.coupon = null;
@@ -82,8 +140,11 @@ export async function applyCoupon(rawCode) {
     return;
   }
 
-  State.coupon = { code: code.toUpperCase(), type: type, value: value };
+  State.coupon = { code: code.toUpperCase(), type: type, value: value, min: min };
   if (typeof togglePromoControls === 'function') togglePromoControls();
+
+  // revalidate cepat + render
+  revalidateCouponIfNeeded(true);
   renderCart();
   toast('Kode promo diterapkan');
 }
@@ -92,6 +153,7 @@ export function clearCoupon() {
   if (!State.coupon) return;
   State.coupon = null;
   if (typeof togglePromoControls === 'function') togglePromoControls();
+  Store.save();
   renderCart();
   toast('Kode promo dihapus');
 }
@@ -118,6 +180,7 @@ export function addToCart(id, name, price, qty) {
   }
 
   Store.save();
+  revalidateCouponIfNeeded(true); // <<< percepat
   renderCart();
 
   if (addQty < qty) toast('Stok tidak cukup. Ditambahkan ' + addQty + ' (sisa ' + (stok - (already + addQty)) + ')');
@@ -128,13 +191,25 @@ export function delCartAt(idx) {
   idx = clampInt(idx, 0);
   if (!State.cart || idx >= State.cart.length) return;
   State.cart.splice(idx, 1);
+
+  if (!(State.cart && State.cart.length) && State.coupon) {
+    State.coupon = null;
+    if (typeof togglePromoControls === 'function') togglePromoControls();
+  }
+
   Store.save();
+  revalidateCouponIfNeeded(true); // <<< percepat
   renderCart();
 }
 
 export function emptyCart() {
   State.cart = [];
+  if (State.coupon) {
+    State.coupon = null;
+    if (typeof togglePromoControls === 'function') togglePromoControls();
+  }
   Store.save();
+  revalidateCouponIfNeeded(true); // <<< percepat
   renderCart();
 }
 
@@ -148,6 +223,7 @@ export function setCartQtyAt(idx, newQty) {
   if (v !== c.qty) {
     c.qty = v;
     Store.save();
+    revalidateCouponIfNeeded(true); // <<< percepat
     renderCart();
   }
   if (v < newQty) toast('Melebihi stok tersedia');
@@ -155,6 +231,11 @@ export function setCartQtyAt(idx, newQty) {
 
 /* =================== Render Cart UI =================== */
 export function renderCart() {
+  if (!(State.cart && State.cart.length) && State.coupon) {
+    State.coupon = null;
+    if (typeof togglePromoControls === 'function') togglePromoControls();
+  }
+
   var totals = calcTotalsLocal();
   var subtotal = totals.subtotal, discount = totals.discount, total = totals.total;
   var hasDisc = discount > 0;
@@ -166,17 +247,25 @@ export function renderCart() {
   // Totals (ID-based)
   setMoneyText(byId('cartSubtotal'),       subtotal, hasDisc);
   setMoneyText(byId('cartSubtotalMobile'), subtotal, hasDisc);
-  setText('cartDiscount', '-' + money(discount));
+
+  // Sembunyikan baris diskon jika tidak ada promo
+  var discIdEl = byId('cartDiscount');
+  if (discIdEl) {
+    var discRow = discIdEl.closest ? discIdEl.closest('.row') : null;
+    if (discRow) discRow.hidden = !hasDisc;
+  }
+  setText('cartDiscount', hasDisc ? ('-' + money(discount)) : '');
+
   // total akhir pakai grand (total + ongkir)
   setText('cartTotal',   money(grand));
   setText('mobileTotal', money(grand));
 
-  // catatan total
-  var note = (hasDisc || shipping > 0)
-    ? ('Setelah diskon' + (shipping > 0 ? ' + ongkir' : ''))
-    : '';
+  // Catatan total: tampil hanya jika ada promo; tambah "+ ongkir" hanya jika ongkir > 0
+  var note = hasDisc ? ('Setelah diskon' + (shipping > 0 ? ' + ongkir' : '')) : '';
   setText('cartTotalNote', note);
   setText('cartTotalNoteMobile', note);
+  var n1 = byId('cartTotalNote');       if (n1) n1.hidden = !note;
+  var n2 = byId('cartTotalNoteMobile'); if (n2) n2.hidden = !note;
 
   // Totals (data-* hooks)
   var els;
@@ -186,7 +275,14 @@ export function renderCart() {
   }
   els = document.querySelectorAll('[data-cart-discount]');
   for (var j=0;j<els.length;j++){
-    els[j].textContent = '-' + money(discount);
+    var r = els[j].closest ? els[j].closest('.row') : null;
+    if (!hasDisc){
+      if (r) r.hidden = true;
+      els[j].textContent = '';
+    } else {
+      if (r) r.hidden = false;
+      els[j].textContent = '-' + money(discount);
+    }
   }
   els = document.querySelectorAll('[data-cart-shipping]');
   for (var k=0;k<els.length;k++){
@@ -278,7 +374,10 @@ export function renderCart() {
         }
 
         var delBtn = row.querySelector('.cart__del');
-        if (delBtn) delBtn.addEventListener('click', function(){ delCartAt(iIdx); });
+        if (delBtn){
+          if (delBtn.addEventListener) delBtn.addEventListener('click', function(){ delCartAt(iIdx); });
+          else delBtn.onclick = function(){ delCartAt(iIdx); };
+        }
 
         box.appendChild(row);
       })(i);
@@ -287,6 +386,90 @@ export function renderCart() {
 
   renderInto(byId('cartItems'));        // desktop
   renderInto(byId('cartItemsMobile'));  // mobile
+
+  // Re-validate promo tiap render (tetap didebounce, kecil)
+  revalidateCouponIfNeeded();
+}
+
+/* =================== Promo revalidate (debounced / immediate) =================== */
+var _promoKey = '';
+var _promoTO  = null;
+
+function _makePromoKey(){
+  if (!State.coupon) return '';
+  var items = (State.cart || []).map(function(c){
+    return c.id + ':' + c.qty + ':' + c.price;
+  }).join(',');
+  return State.coupon.code + '|' + items;
+}
+
+/**
+ * Revalidate kupon ke server.
+ * @param {boolean} immediate - jika true, langsung panggil tanpa debounce
+ */
+function revalidateCouponIfNeeded(immediate){
+  if (!State.coupon) { _promoKey = ''; return; }
+
+  // Jika sudah dicopot oleh local min-check, jangan lanjut.
+  if (!State.coupon) return;
+
+  var key = _makePromoKey();
+  if (!immediate && key === _promoKey) return;
+  _promoKey = key;
+
+  if (_promoTO) { try{ clearTimeout(_promoTO); }catch(_){} }
+
+  var fire = function(){
+    // Jika kupon sudah hilang saat menunggu, batalkan
+    if (!State.coupon) return;
+
+    var payload = {
+      code: State.coupon.code,
+      items: (State.cart || []).map(function(c){ return { id:c.id, qty:c.qty, price:c.price }; })
+    };
+
+    Api.promoValidate(payload).then(function(res){
+      var ok = !!(res && (res.ok || res.valid || res.status === 'ok'));
+      if (!ok){
+        State.coupon = null;
+        if (typeof togglePromoControls === 'function') togglePromoControls();
+        renderCart();
+        toast('Diskon dibatalkan: tidak lagi memenuhi syarat');
+        return;
+      }
+
+      var data = res.data || res;
+      var t = String(data.type || '').toLowerCase();
+      var v = Number(data.value || 0);
+      var min1 = digitsToNumber(data.min_subtotal || data.min_total || data.minimum || data.min || data.minimum_amount || data.min_order || data.min_belanja);
+      var min2 = deepPickMin(data);
+      var min = Math.max(min1, min2, 0);
+
+      if (!t || !(v > 0)){
+        State.coupon = null;
+        if (typeof togglePromoControls === 'function') togglePromoControls();
+        renderCart();
+        toast('Diskon dibatalkan: respon tidak valid');
+        return;
+      }
+      // update value & minimum (bila berubah)
+      State.coupon = { code: State.coupon.code, type: t, value: v, min: min };
+
+      // Kalau setelah update ternyata subtotal < min, copot instan.
+      var subNow = (State.cart || []).reduce(function (s, c) {
+        return s + (Number(c.qty || 0) * Number(c.price || 0));
+      }, 0);
+      if (min > 0 && subNow < min){
+        State.coupon = null;
+        if (typeof togglePromoControls === 'function') togglePromoControls();
+        renderCart();
+        toast('Diskon dibatalkan: subtotal di bawah minimum');
+      }
+    }).catch(function(){ /* network error: abaikan, biar tidak nge-spam */});
+  };
+
+  if (immediate) fire();
+  else _promoTO = setTimeout(fire, 80); // debounce kecil biar responsif
 }
 
 /* =================== Stock guard =================== */
@@ -305,6 +488,7 @@ export function validateCartAgainstStock() {
   if (changed) {
     State.cart = newCart;
     Store.save();
+    revalidateCouponIfNeeded(true);
     renderCart();
     toast('Keranjang disesuaikan dengan stok yang tersedia');
   }
