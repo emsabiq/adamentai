@@ -17,6 +17,10 @@ function getCouponMin(cp){
   }
   return 0;
 }
+function earliestPickupHHMM(){
+  const d=new Date(); d.setMinutes(d.getMinutes()+30); d.setSeconds(0); d.setMilliseconds(0);
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
 
 /* =====================
  * PROMO
@@ -42,7 +46,6 @@ function clearCoupon(){
   if (!State.coupon) return;
   State.coupon = null;
   togglePromoControls();
-  // sinkronkan tampilan cart
   try{ import('./cart.js').then(function(m){ if (m && m.renderCart) m.renderCart(); }); }catch(_){}
   toast('Kode promo dihapus');
 }
@@ -63,7 +66,6 @@ async function applyCoupon(code){
 
   var ok = !!(res && (res.ok || res.valid || res.status === 'ok'));
   if (!ok){
-    // Opsional: fallback lokal bila CONFIG diaktifkan
     try{
       if (typeof window !== 'undefined' && window.CONFIG && window.CONFIG.PROMO_LOCAL_FALLBACK){
         var fbmap = {
@@ -103,7 +105,6 @@ async function applyCoupon(code){
 
   State.coupon = { code: clean.toUpperCase(), type: t, value: v, min: min };
   togglePromoControls();
-  // sinkronkan tampilan cart
   try{ import('./cart.js').then(function(m){ if (m && m.renderCart) m.renderCart(); }); }catch(_){}
   toast('Kode promo diterapkan');
 }
@@ -245,6 +246,29 @@ async function checkout(desktop){
     // Normalisasi HP: digit saja (server boleh tetap menerima format bebas)
     var phoneDigits = onlyDigits(phone) || phone;
 
+    // ====== VALIDASI PENGIRIMAN / PICKUP ======
+    var ship = (State && State.shipping) ? State.shipping : (typeof window !== 'undefined' && window.State ? (window.State.shipping || {}) : {});
+    ship = ship || {};
+    var mode = ship.mode || 'delivery';
+
+    if (mode === 'delivery') {
+      if (!ship.dest || !ship.address) {
+        if (!desktop) openDrawer();
+        toast('Pilih lokasi pengantaran terlebih dahulu');
+        return;
+      }
+    } else { // pickup
+      var minHHMM = earliestPickupHHMM();
+      var t = ship.pickup_time || minHHMM;
+      if (t < minHHMM){
+        if (!desktop) openDrawer();
+        toast('Waktu ambil minimal 30 menit dari sekarang');
+        return;
+      }
+      // pastikan ongkir 0
+      ship.fee = 0;
+    }
+
     // totals dari state (tanpa ongkir)
     var totals = calcTotals();
     var subtotal = totals.subtotal, discount = totals.discount, total = totals.total;
@@ -252,7 +276,6 @@ async function checkout(desktop){
     // Safety: cek minimum belanja lagi sebelum submit
     var must = getCouponMin(State.coupon);
     if (State.coupon && must > 0) {
-      // hitung ulang subtotal langsung dari keranjang (guard)
       var _sub = (State.cart || []).reduce(function (s, c) {
         return s + (Number(c.qty || 0) * Number(c.price || 0));
       }, 0);
@@ -260,7 +283,6 @@ async function checkout(desktop){
         State.coupon = null;
         togglePromoControls();
         toast('Diskon dibatalkan: subtotal di bawah minimum');
-        // Recompute totals tanpa kupon
         totals = calcTotals();
         subtotal = totals.subtotal; discount = totals.discount; total = totals.total;
         try{ import('./cart.js').then(function(m){ if (m && m.renderCart) m.renderCart(); }); }catch(_){}
@@ -268,9 +290,6 @@ async function checkout(desktop){
     }
 
     // detail ongkir dari State.shipping (diisi oleh shipping.js)
-    var ship = (State && State.shipping) ? State.shipping : (typeof window !== 'undefined' && window.State ? (window.State.shipping || {}) : {});
-    ship = ship || {};
-
     var shipping        = Number(ship.fee || 0);
     if (!(shipping >= 0)) shipping = 0;
 
@@ -279,7 +298,7 @@ async function checkout(desktop){
     var shipping_distance_km = (ship.distance_km != null) ? ship.distance_km : (ship.route && ship.route.distance_km ? ship.route.distance_km : null);
     var shipping_breakdown = ship.breakdown || null;
     var shipping_quote  = ship.quote || null;
-    var shipping_address = ship.address || '';
+    var shipping_address = ship.address || (mode==='pickup' ? 'Ambil di Toko' : '');
 
     var payload = {
       customer_name: name,
@@ -299,7 +318,8 @@ async function checkout(desktop){
       total: total,                       // tanpa ongkir
       grand_total: (total + shipping),    // untuk penagihan
 
-      // ======== tambahan ongkir ========
+      // ======== tambahan ongkir / pickup ========
+      shipping_mode: mode,                // 'delivery' | 'pickup'
       shipping_fee: shipping,
       shipping_dest: shipping_dest,
       shipping_eta_min: shipping_eta_min,
@@ -307,6 +327,7 @@ async function checkout(desktop){
       shipping_breakdown: shipping_breakdown,
       shipping_quote: shipping_quote,
       shipping_address: shipping_address,
+      pickup_time: (mode==='pickup' ? (ship.pickup_time || earliestPickupHHMM()) : null),
 
       // redirect setelah selesai
       finish_redirect_url: (typeof location !== 'undefined' ? location.href : '')
