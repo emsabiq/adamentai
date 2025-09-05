@@ -290,7 +290,8 @@ export function renderAdminTables() {
     var kat = m.category || m.kategori || m.category_name || '-';
     rowsHTML.push(
       '<tr data-id="' + escapeHTML(String(m.id)) + '"' + (_editingRowId && String(_editingRowId) === String(m.id) ? ' class="is-editing"' : '') + '>' +
-      '  <td class="click-edit">' + escapeHTML(m.name) + '</td>' +
+      // >>> HILANGKAN click-to-edit: hapus class "click-edit"
+      '  <td>' + escapeHTML(m.name) + '</td>' +
       '  <td>' + escapeHTML(kat) + '</td>' +
       '  <td class="right">' + money(m.price) + '</td>' +
       '  <td class="right">' + String(m.stock) + '</td>' +
@@ -311,14 +312,7 @@ export function renderAdminTables() {
       var t = e.target;
       if (!t) return;
 
-      // klik nama → edit
-      var ce = (t.classList && t.classList.contains('click-edit')) ? t : (t.closest ? t.closest('.click-edit') : null);
-      if (ce) {
-        var tr = t.closest ? t.closest('tr') : null;
-        var id = tr ? tr.getAttribute('data-id') : null;
-        if (id) editMenu(id);
-        return;
-      }
+      // >>> HILANGKAN click-to-edit di cell nama (DIHAPUS)
 
       // quick toggle aktif
       var qa = (t.classList && t.classList.contains('quick-active')) ? t : (t.closest ? t.closest('.quick-active') : null);
@@ -624,7 +618,8 @@ export function renderPromoTable(promos) {
     var periode = (start || end) ? (start || '—') + ' → ' + (end || '—') : '-';
     html.push(
       '<tr data-id="' + escapeHTML(String(p.id)) + '">' +
-      '  <td class="dbl-edit">' + escapeHTML(p.code) + '</td>' +
+      // >>> HILANGKAN dblclick-to-edit: hapus class "dbl-edit"
+      '  <td>' + escapeHTML(p.code) + '</td>' +
       '  <td>' + (p.type === 'percent' ? '%' : 'Rp') + '</td>' +
       '  <td class="right">' + (p.type === 'percent' ? (String(p.value) + '%') : money(p.value)) + '</td>' +
       '  <td class="right">' + (p.min_subtotal ? money(p.min_subtotal) : '-') + '</td>' +
@@ -671,17 +666,7 @@ export function renderPromoTable(promos) {
       }
     });
 
-    // double click untuk edit kode
-    tb.addEventListener('dblclick', function (e) {
-      var t = e.target; if (!t) return;
-      var de = (t.classList && t.classList.contains('dbl-edit')) ? t : (t.closest ? t.closest('.dbl-edit') : null);
-      if (!de) return;
-      var tr = t.closest ? t.closest('tr') : null;
-      var id = tr ? tr.getAttribute('data-id') : null;
-      if (!id) return;
-      var p = (promos || []).find(function (x) { return String(x.id) === String(id); });
-      if (p) fillPromoForm(p);
-    });
+    // >>> HILANGKAN double click edit (DIHAPUS)
   }
 
   ensurePromoUX();
