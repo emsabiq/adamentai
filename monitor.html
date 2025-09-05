@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Monitor Pesanan</title>
+<meta name="theme-color" content="#0f172a">
+<style>
+  :root{
+    --bg:#0b1220; --panel:#0f172a; --card:#111827; --line:rgba(148,163,184,.16);
+    --fg:#e5e7eb; --muted:#a7b0c2; --soft:#cbd5e1;
+    --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --accent:#3b82f6;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Inter}
+  a{color:inherit;text-decoration:none}
+
+  /* HEADER */
+  header{position:sticky;top:0;z-index:50;background:rgba(15,23,42,.92);border-bottom:1px solid var(--line);backdrop-filter:blur(6px)}
+  .wrap{max-width:1080px;margin:0 auto;padding:10px 12px}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:17px}
+  .icon{width:18px;height:18px;vertical-align:-3px;opacity:.95}
+
+  .btn{background:var(--accent);color:#fff;border:0;border-radius:10px;padding:8px 12px;font-weight:700;cursor:pointer}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
+  .btn.secondary{background:#1f2937}
+  .btn.small{padding:6px 10px;font-size:12px}
+  .btn:disabled{opacity:.6;cursor:not-allowed}
+
+  .pill{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:6px 10px}
+  input[type=text],input[type=password],select{background:var(--panel);border:1px solid var(--line);color:var(--fg);border-radius:10px;padding:8px 10px;outline:none;min-height:36px}
+
+  /* FILTER BAR */
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .filters .grow{flex:1 1 260px}
+
+  /* MAIN */
+  main{max-width:1080px;margin:0 auto;padding:12px 12px 90px}
+  .statusline{color:var(--muted);margin:4px 2px 12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
+  @media (max-width:420px){ .grid{grid-template-columns:1fr} }
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;box-shadow:0 10px 18px rgba(0,0,0,.25);transition:box-shadow .15s ease,transform .15s ease}
+  .card.new{outline:2px solid rgba(59,130,246,.35)}
+  .card.done{opacity:.58}
+  .card:hover{transform:translateY(-1px);box-shadow:0 12px 20px rgba(0,0,0,.3)}
+
+  .top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+  .id{font-weight:800;font-family:ui-monospace,Menlo,Consolas,monospace}
+  .badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:2px 8px;font-size:12px;border:1px solid var(--line);color:var(--soft)}
+  .b-ok{background:rgba(22,163,74,.12);color:#c9f7d5;border-color:rgba(34,197,94,.25)}
+  .b-warn{background:rgba(245,158,11,.12);color:#fee7c4;border-color:rgba(245,158,11,.25)}
+  .b-bad{background:rgba(239,68,68,.12);color:#ffd1d1;border-color:rgba(239,68,68,.25)}
+
+  dl{display:grid;grid-template-columns:110px 1fr;gap:4px 10px;margin:10px 0 0}
+  dt{color:var(--muted)} dd{margin:0}
+  .tag{display:inline-flex;align-items:center;gap:6px;background:rgba(59,130,246,.12);color:#d6e5ff;border:1px solid rgba(59,130,246,.25);padding:2px 8px;border-radius:8px;font-size:12px}
+  .actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+
+  /* ITEMS */
+  .items{margin-top:8px;border-top:1px dashed var(--line);padding-top:8px}
+  .items ul{list-style:none;margin:8px 0 0;padding:0}
+  .items li{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px dashed rgba(148,163,184,.12)}
+  .muted{color:var(--muted)} .small{font-size:12px}
+
+  /* DRAWER */
+  .drawer{position:fixed;inset:0;display:none;z-index:60}
+  .drawer.show{display:block}
+  .drawer .mask{position:absolute;inset:0;background:rgba(0,0,0,.35);opacity:0;transition:opacity .2s ease}
+  .drawer.show .mask{opacity:1}
+  .drawer .panel{position:absolute;top:0;right:0;width:min(92vw,380px);height:100%;background:var(--panel);border-left:1px solid var(--line);padding:14px;overflow:auto;transform:translateX(100%);transition:transform .2s ease}
+  .drawer.show .panel{transform:translateX(0)}
+  .drawer h3{margin:0 0 8px;font-size:16px}
+  .field{display:flex;flex-direction:column;gap:6px;margin:10px 0}
+  .chip{padding:4px 8px;border-radius:999px;background:var(--panel);border:1px solid var(--line);color:var(--muted);font-size:12px}
+  .countdot{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;background:var(--bad);color:#fff;border-radius:999px;font-size:12px;font-weight:700;padding:0 6px;margin-left:6px}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="row">
+      <div class="brand">
+        <svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M3 7h18M5 7v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        Monitor Pesanan <span id="newCount" class="countdot" style="display:none">0</span>
+      </div>
+      <div style="flex:1"></div>
+      <button id="pauseBtn" class="btn secondary small" title="Pause/Resume">Pause</button>
+      <button id="openDrawer" class="btn ghost small" title="Pengaturan & Login">☰</button>
+    </div>
+    <!-- FILTERS -->
+    <div class="filters">
+      <label class="pill">Status:
+        <select id="filterStatus">
+          <option value="settlement" selected>Settlement (default)</option>
+          <option value="">Semua</option>
+          <option value="pending">Pending</option>
+          <option value="capture">Capture</option>
+          <option value="cancel">Cancel</option>
+          <option value="expire">Expire</option>
+        </select>
+      </label>
+      <input id="searchBox" class="grow" type="text" placeholder="Cari nama / order id / hp / alamat...">
+      <label class="pill"><input id="hideDone" type="checkbox" checked> Sembunyikan selesai</label>
+      <button id="markReadBtn" class="btn ghost small" title="Reset highlight baru">Tandai sudah dibaca</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div id="status" class="wrap statusline">Menunggu konfigurasi…</div>
+  <div class="wrap"><div class="grid" id="grid"></div></div>
+</main>
+
+<!-- DRAWER (settings/login) -->
+<div id="drawer" class="drawer" aria-hidden="true">
+  <div class="mask" id="mask"></div>
+  <div class="panel">
+    <div class="row" style="justify-content:space-between">
+      <h3>Login & Pengaturan</h3>
+      <button id="closeDrawer" class="btn ghost small">✕</button>
+    </div>
+
+    <div class="field">
+      <label>Monitor Token (Bearer)</label>
+      <input id="token" type="password" placeholder="contoh: monitor1234">
+      <div class="row">
+        <button id="saveBtn" class="btn">Simpan & Mulai</button>
+        <span id="savedChip" class="chip">—</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Worker Base URL</label>
+      <input id="baseUrl" type="text" placeholder="https://midtrans-proxy…..workers.dev">
+      <div class="row">
+        <button id="resetBase" class="btn secondary small">Reset URL ke default</button>
+      </div>
+      <div class="small muted">Tidak perlu “/” di akhir—skrip otomatis membetulkan.</div>
+    </div>
+
+    <hr style="border:0;border-top:1px solid var(--line);margin:12px 0">
+
+    <div class="field">
+      <label>Suara & Notifikasi</label>
+      <div class="row">
+        <button id="soundBtn" class="btn secondary small">🔊 Enable Sound</button>
+        <button id="notifBtn" class="btn ghost small">🔔 Izinkan Notifikasi</button>
+      </div>
+      <label class="small muted">Volume:
+        <input id="volume" type="range" min="0" max="100" value="80">
+      </label>
+      <label class="small"><input id="beepNew" type="checkbox" checked> Bunyi saat order baru</label>
+      <label class="small"><input id="beepSettle" type="checkbox" checked> Bunyi saat settlement</label>
+      <button id="testBeep" class="btn ghost small" style="margin-top:6px">Tes Bunyi</button>
+    </div>
+
+    <hr style="border:0;border-top:1px solid var(--line);margin:12px 0">
+    <div class="small muted">Token & pengaturan disimpan di perangkat (localStorage) dan <b>tidak kadaluwarsa</b>.</div>
+  </div>
+</div>
+
+<script>
+(function(){
+  /* ===================== CONFIG & DOM ===================== */
+  const DEFAULT_BASE = 'https://midtrans-proxy.msabiq-stan.workers.dev';
+  const STORE_NAME = 'Adamentai - All About Mentai';
+
+  const $ = (s)=>document.querySelector(s);
+  const els = {
+    openDrawer: $('#openDrawer'), closeDrawer: $('#closeDrawer'), drawer: $('#drawer'), mask: $('#mask'),
+    token: $('#token'), saveBtn: $('#saveBtn'), pauseBtn: $('#pauseBtn'), savedChip: $('#savedChip'),
+    baseUrl: $('#baseUrl'), resetBase: $('#resetBase'),
+    filterStatus: $('#filterStatus'), hideDone: $('#hideDone'), searchBox: $('#searchBox'),
+    markReadBtn: $('#markReadBtn'),
+    soundBtn: $('#soundBtn'), notifBtn: $('#notifBtn'), testBeep: $('#testBeep'),
+    volume: $('#volume'), beepNew: $('#beepNew'), beepSettle: $('#beepSettle'),
+    status: $('#status'), grid: $('#grid'), newCount: $('#newCount')
+  };
+
+  const st = {
+    baseUrl: DEFAULT_BASE, token: '', pollMs: 10000, timer: null, paused: false,
+    orders: new Map(), lastTouched: new Set(), unseenCount: 0,
+    done: new Set(JSON.parse(localStorage.getItem('mon.done')||'[]')),
+    audio: null, gain: null, audioReady: false
+  };
+
+  initSaved();
+  bindUI();
+
+  if (st.token) {
+    setStatus('Menghubungkan…');
+    startPolling(true);
+  } else {
+    setStatus('Buka menu ☰ → isi Monitor Token → Simpan & Mulai.');
+    openDrawer(true);
+  }
+
+  /* ===================== UI HANDLERS ===================== */
+  function bindUI(){
+    els.openDrawer.addEventListener('click', ()=> openDrawer(true));
+    els.closeDrawer.addEventListener('click', ()=> openDrawer(false));
+    els.mask.addEventListener('click', ()=> openDrawer(false));
+    document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') openDrawer(false); });
+
+    els.saveBtn.addEventListener('click', ()=>{
+      st.baseUrl = sanitizeBase(els.baseUrl.value || DEFAULT_BASE);
+      st.token = (els.token.value||'').trim();
+      localStorage.setItem('mon.baseUrl', st.baseUrl);
+      localStorage.setItem('mon.token', st.token);
+      els.savedChip.textContent = st.token ? 'token tersimpan' : 'belum login';
+      setStatus('Menyimpan & menyambung…');
+      st.orders.clear(); st.lastTouched.clear(); st.unseenCount=0; updateUnseen(); render([]);
+      startPolling(true);
+      openDrawer(false);
+    });
+
+    els.resetBase.addEventListener('click', ()=>{
+      els.baseUrl.value = DEFAULT_BASE;
+    });
+
+    els.pauseBtn.addEventListener('click', ()=>{
+      st.paused=!st.paused;
+      els.pauseBtn.textContent = st.paused ? 'Resume' : 'Pause';
+      if (st.paused) stopPolling(); else startPolling();
+    });
+
+    els.filterStatus.addEventListener('change', ()=>{ localStorage.setItem('mon.filter', els.filterStatus.value); render(); });
+    els.hideDone.addEventListener('change', ()=>{ localStorage.setItem('mon.hideDone', els.hideDone.checked?'1':'0'); render(); });
+    els.searchBox.addEventListener('input', debounce(()=>render(), 250));
+    els.markReadBtn.addEventListener('click', ()=>{ st.lastTouched.clear(); st.unseenCount=0; updateUnseen(); render(); });
+
+    els.soundBtn.addEventListener('click', async ()=>{ await ensureAudio(); toast('Sound siap ✅'); });
+    els.notifBtn.addEventListener('click', async ()=>{ try{ const r=await Notification.requestPermission(); toast(r==='granted'?'Notifikasi diizinkan ✅':'Ditolak/dibatasi'); }catch{ toast('Notifikasi tidak didukung'); } });
+    els.testBeep.addEventListener('click', ()=> chime('new'));
+    els.volume.addEventListener('input', ()=>{ localStorage.setItem('mon.vol', els.volume.value); if (st.gain) st.gain.gain.value = (+els.volume.value||0)/100; });
+    els.beepNew.addEventListener('change', ()=> localStorage.setItem('mon.beepNew', els.beepNew.checked?'1':'0'));
+    els.beepSettle.addEventListener('change', ()=> localStorage.setItem('mon.beepSettle', els.beepSettle.checked?'1':'0'));
+
+    els.grid.addEventListener('click', (ev)=>{
+      const b = ev.target.closest('button[data-act]'); if(!b) return;
+      const id = b.dataset.id; const it = st.orders.get(id); if(!it){ toast('Pesanan tidak ditemukan'); return; }
+      const act = b.dataset.act;
+      if (act==='wa'){ window.open('https://wa.me/?text='+encodeURIComponent(buildWaText(it)), '_blank'); }
+      else if (act==='print'){ printReceipt(it); }
+      else if (act==='done'){ if(st.done.has(id)) st.done.delete(id); else st.done.add(id); persistDone(); render(); }
+      else if (act==='toggle-items'){ const sec = document.getElementById('items-'+css(id)); if(sec){ sec.hidden=!sec.hidden; b.textContent=sec.hidden?'Lihat rincian':'Sembunyikan rincian'; } }
+    });
+  }
+
+  function openDrawer(show){
+    const on = !!show;
+    els.drawer.classList.toggle('show', on);
+    els.drawer.setAttribute('aria-hidden', on?'false':'true');
+    document.body.style.overflow = on ? 'hidden' : '';
+  }
+
+  function initSaved(){
+    st.baseUrl = sanitizeBase(localStorage.getItem('mon.baseUrl') || DEFAULT_BASE);
+    st.token = localStorage.getItem('mon.token') || '';
+    els.baseUrl.value = st.baseUrl;
+    els.token.value = st.token;
+    els.savedChip.textContent = st.token ? 'token tersimpan' : 'belum login';
+    const savedFilter = localStorage.getItem('mon.filter');
+    els.filterStatus.value = savedFilter !== null ? savedFilter : 'settlement';
+    const hideDone = localStorage.getItem('mon.hideDone'); if (hideDone!==null) els.hideDone.checked = (hideDone==='1');
+    const vol = +(localStorage.getItem('mon.vol')||'80'); els.volume.value = String(vol);
+    const bN = localStorage.getItem('mon.beepNew'); if (bN!==null) els.beepNew.checked = (bN==='1');
+    const bS = localStorage.getItem('mon.beepSettle'); if (bS!==null) els.beepSettle.checked = (bS==='1');
+  }
+
+  /* ===================== DATA ===================== */
+  function startPolling(immediate=false){
+    stopPolling();
+    if (!st.token){ setStatus('Token kosong. Buka menu ☰ untuk login.'); return; }
+    if (immediate) fetchOrders(true);
+    st.timer = setInterval(()=>{ if(!st.paused) fetchOrders(); }, st.pollMs);
+  }
+  function stopPolling(){ if(st.timer) clearInterval(st.timer); st.timer=null; }
+
+  async function fetchOrders(first=false){
+    setStatus(first?'Mengambil data…':'Memeriksa…');
+    try{
+      const res = await fetch(buildEndpoint('orders-list'), {
+        method:'POST',
+        headers: { 'content-type':'application/json', 'authorization':'Bearer '+st.token },
+        body: JSON.stringify({ limit: 60 })
+      });
+      const text = await res.text(); let data;
+      try{ data = JSON.parse(text); }catch{ data={ ok:false, error:'invalid_json', raw:text }; }
+      if (!res.ok || !data.ok){ setStatus('Gagal: '+(data.error||res.status)); return; }
+      handleData(data);
+    }catch(e){
+      setStatus('Jaringan bermasalah: '+(e&&e.message||e));
+    }
+  }
+
+  function handleData(payload){
+    const arr = Array.isArray(payload.data)?payload.data.slice():[];
+    arr.sort((a,b)=> (getMs(b)-getMs(a)) || ((b.rownum||0)-(a.rownum||0)));
+
+    let newFound=0, settleChanged=0;
+    const next = new Map(st.orders);
+    for (const it of arr){
+      const id=String(it.order_id||''); const prev=st.orders.get(id); next.set(id,it);
+      if(!prev){ st.lastTouched.add(id); newFound++; if(els.beepNew.checked) notifyAndSound(it,'Pesanan Baru','new'); }
+      else if((prev.status||'') !== (it.status||'')){
+        st.lastTouched.add(id);
+        if(String(it.status||'').toLowerCase()==='settlement' && els.beepSettle.checked){ settleChanged++; notifyAndSound(it,'Pembayaran Berhasil','settle'); }
+        else notify(it,'Status Berubah: '+(it.status||'-'));
+      }
+    }
+    st.orders = next;
+    st.unseenCount += newFound + settleChanged; updateUnseen();
+    setStatus('Terhubung • '+ new Date().toLocaleTimeString('id-ID',{hour12:false}));
+    render(arr);
+  }
+
+  /* ===================== RENDER ===================== */
+  function render(listOpt){
+    const qtxt = (els.searchBox.value||'').toLowerCase();
+    const filter = (els.filterStatus.value||'').toLowerCase();
+    const hideDone = els.hideDone.checked;
+    const src = listOpt || Array.from(st.orders.values());
+    const out=[];
+    for(const it of src){
+      const stLower=String(it.status||'').toLowerCase();
+      if(filter && stLower!==filter) continue;
+      if(hideDone && st.done.has(String(it.order_id||''))) continue;
+      const hay=[it.order_id,it.customer_name,it.phone,it.address,it.note,it.ring].join(' ').toLowerCase();
+      if(qtxt && !hay.includes(qtxt)) continue;
+      out.push(renderCard(it));
+    }
+    els.grid.innerHTML = out.join('') || '<div class="muted">Tidak ada data.</div>';
+  }
+
+  function renderCard(it){
+    const id=String(it.order_id||''); const stat=String(it.status||'-').toLowerCase();
+    const cls = stat==='settlement'||stat==='capture' ? 'b-ok' : (stat==='pending'?'b-warn':'b-bad');
+    const isNewFlag = isFresh(it, 30*60*1000);
+    const since = fmtTime(it.time);
+    const ship = it.shipping||{};
+    const dist = defined(ship.distance_km)?ship.distance_km:it.distance_km;
+    const eta  = defined(ship.eta_min)?ship.eta_min:it.eta_min;
+    const items = Array.isArray(it.items)?it.items:[];
+    const subtotal = +it.total_no_ship||0, ongkir = +it.shipping_fee||0;
+    const grand = +(it.grand_total ?? (subtotal+ongkir));
+    const qty = items.reduce((s,c)=>s+(+c.qty||0),0);
+    const isDone = st.done.has(id);
+
+    const lines = items.map(x=>`
+      <li>
+        <span>${esc(x.name)} <span class="muted">×${x.qty} @ Rp ${num(x.price)}</span></span>
+        <b>Rp ${num((x.qty||0)*(x.price||0))}</b>
+      </li>`).join('');
+
+    return `
+    <div class="card ${st.lastTouched.has(id)?'new':''} ${isDone?'done':''}">
+      <div class="top">
+        <div>
+          <div class="id">${esc(id)}</div>
+          <div class="muted small">${since}</div>
+          ${isNewFlag?`<div class="tag" style="margin-top:6px">⚡ Pesanan baru, segera siapkan!</div>`:''}
+          ${isDone?`<div class="tag" style="margin-top:6px">✔️ Selesai</div>`:''}
+        </div>
+        <div class="badge ${cls}">${esc(stat)}</div>
+      </div>
+
+      <dl>
+        <dt>Nama</dt><dd>${esc(it.customer_name||'-')}</dd>
+        <dt>HP</dt><dd><a class="muted" href="tel:${escAttr(it.phone||'')}">${esc(it.phone||'-')}</a></dd>
+        <dt>Alamat</dt><dd>${esc(it.address||'-')}</dd>
+        <dt>Ringkasan</dt><dd>${esc(it.ring||'-')}</dd>
+        <dt>Item</dt><dd>${qty} barang • Rp ${num(subtotal)}</dd>
+        <dt>Ongkir</dt><dd>Rp ${num(ongkir)}</dd>
+        <dt>Grand</dt><dd><b>Rp ${num(grand)}</b> (${esc(it.payment||'-')})</dd>
+        <dt>Jarak/ETA</dt><dd>${defined(dist)?dist+' km':'-'} • ${defined(eta)?'~'+eta+' min':'-'}</dd>
+        <dt>Catatan</dt><dd>${esc(it.note||'-')}</dd>
+      </dl>
+
+      <div class="items">
+        <button class="btn ghost small" data-act="toggle-items" data-id="${escAttr(id)}">Lihat rincian</button>
+        <section id="items-${css(id)}" hidden>
+          <ul>${lines||'<li class="muted">Tidak ada item</li>'}</ul>
+        </section>
+      </div>
+
+      <div class="actions">
+        <button class="btn ghost small" data-act="wa" data-id="${escAttr(id)}">Kirim via WhatsApp</button>
+        <button class="btn ghost small" data-act="print" data-id="${escAttr(id)}">Print Struk</button>
+        <button class="btn secondary small" data-act="done" data-id="${escAttr(id)}">${isDone?'Batalkan':'Tandai Selesai'}</button>
+      </div>
+    </div>`;
+  }
+
+  /* ===================== WA & PRINT ===================== */
+  function buildWaText(it){
+    const items = Array.isArray(it.items)?it.items:[];
+    const linesItems = items.map(x=>`- ${x.name} x${x.qty} @ Rp ${num(x.price)} = Rp ${num(x.qty*x.price)}`);
+    const subtotal = +it.total_no_ship||0;
+    const ongkir = +it.shipping_fee||0;
+    const grand = +(it.grand_total ?? (subtotal+ongkir));
+    const ship = it.shipping||{};
+    const dist = defined(ship.distance_km)?ship.distance_km:it.distance_km;
+    const eta  = defined(ship.eta_min)?ship.eta_min:it.eta_min;
+    return [
+      `*${STORE_NAME}*`,
+      `📦 *Pesanan*`,
+      `ID: ${it.order_id}`,
+      `Nama: ${it.customer_name||'-'}`,
+      `HP: ${it.phone||'-'}`,
+      `Alamat: ${it.address||'-'}`,
+      ``,
+      `*Rincian*`,
+      ...linesItems,
+      `Subtotal: Rp ${num(subtotal)}`,
+      `Ongkir: Rp ${num(ongkir)}`,
+      `*Grand Total: Rp ${num(grand)}*`,
+      ``,
+      `Metode: ${String(it.payment||'-').toUpperCase()}`,
+      `Status: ${String(it.status||'-')}`,
+      `Ringkasan: ${it.ring||'-'}`,
+      `Jarak/ETA: ${defined(dist)?dist+' km':'-'} • ${defined(eta)?('~'+eta+' min'):'-'}`,
+      ``,
+      `Terima kasih 🙏`
+    ].join('\n');
+  }
+
+  function printReceipt(it){
+    const items = Array.isArray(it.items)?it.items:[];
+    const subtotal = +it.total_no_ship||0, ongkir = +it.shipping_fee||0;
+    const grand = +(it.grand_total ?? (subtotal+ongkir));
+    const win = window.open('', '_blank', 'width=480,height=700');
+    const style = `<style>
+      body{font:12px/1.3 ui-monospace,Menlo,Consolas,monospace;color:#000;margin:0;padding:16px;background:#fff}
+      h2{margin:0 0 8px;font-size:16px;text-align:center}
+      .muted{color:#444}
+      table{width:100%;border-collapse:collapse;margin-top:8px}
+      td{padding:4px 0;vertical-align:top}
+      .tot{border-top:1px dashed #000;margin-top:8px;padding-top:8px}
+      .right{text-align:right}
+      .small{font-size:11px}
+      @media print { @page { size: 80mm auto; margin: 6mm } }
+    </style>`;
+    const rows = items.map(x=>`
+      <tr><td colspan="2">${esc(x.name)}</td></tr>
+      <tr><td class="small">  ${x.qty} x ${num(x.price)}</td><td class="right">${num(x.qty*x.price)}</td></tr>
+    `).join('');
+    const html = `
+      <!doctype html><html><head><meta charset="utf-8"><title>Struk ${esc(it.order_id||'')}</title>${style}</head>
+      <body>
+        <h2>${esc(STORE_NAME)}</h2>
+        <div class="small muted">${new Date(it.time||Date.now()).toLocaleString('id-ID',{hour12:false})}</div>
+        <div>ID: ${esc(it.order_id||'')}</div>
+        <div>Pelanggan: ${esc(it.customer_name||'-')}</div>
+        <div>HP: ${esc(it.phone||'-')}</div>
+        <div>Alamat: ${esc(it.address||'-')}</div>
+        <table>${rows || '<tr><td>(tidak ada item)</td><td></td></tr>'}</table>
+        <div class="tot">
+          <div>Subtotal <span class="right" style="float:right">${num(subtotal)}</span></div>
+          <div>Ongkir <span class="right" style="float:right">${num(ongkir)}</span></div>
+          <div><b>Grand Total</b> <span class="right" style="float:right"><b>${num(grand)}</b></span></div>
+        </div>
+        <div class="small muted" style="margin-top:10px">Metode: ${esc(String(it.payment||'-').toUpperCase())} • Status: ${esc(String(it.status||'-'))}</div>
+        <div class="small muted">Ringkasan: ${esc(it.ring||'-')}</div>
+        <div style="margin-top:10px">Terima kasih 🙏</div>
+        <script>window.onload=()=>setTimeout(()=>window.print(),200)<\/script>
+      </body></html>`;
+    win.document.write(html); win.document.close();
+  }
+
+  /* ===================== AUDIO & NOTIF ===================== */
+  function notifyAndSound(it,title,type){ notify(it,title); chime(type); if(navigator.vibrate) try{navigator.vibrate([220,120,220]);}catch{} }
+  function notify(it,title){
+    if(!('Notification' in window) || Notification.permission!=='granted') return;
+    const body = `${it.customer_name||'-'} • Rp ${num(it.grand_total||0)}\n${(it.address||'-').slice(0,120)}`;
+    try{ new Notification(title||'Pesanan', { body, tag:String(it.order_id||''), renotify:true }); }catch{}
+  }
+  async function ensureAudio(){
+    if(st.audioReady) return;
+    const AC = window.AudioContext || window.webkitAudioContext; if(!AC){ toast('AudioContext tidak didukung'); return; }
+    const ctx = st.audio = new AC(); const g = st.gain = ctx.createGain();
+    g.gain.value = (+els.volume.value||0)/100; g.connect(ctx.destination);
+    if(ctx.state==='suspended') try{ await ctx.resume(); }catch{}
+    st.audioReady = true;
+  }
+  async function chime(type){
+    await ensureAudio(); if(!st.audio||!st.gain) return; const ctx=st.audio; const base=st.gain.gain.value||.6;
+    const seq = (type==='settle') ? [{f:1175,d:.25,v:1.0},{f:1568,d:.20,v:.9}] : [{f:784,d:.22,v:1.0},{f:659,d:.18,v:.85},{f:988,d:.22,v:1.0}];
+    let t=ctx.currentTime; for(const n of seq){ const o=ctx.createOscillator(), g=ctx.createGain();
+      o.type='sine'; o.frequency.setValueAtTime(n.f,t); g.gain.setValueAtTime(.0001,t); g.gain.linearRampToValueAtTime(base*n.v,t+.02);
+      g.gain.exponentialRampToValueAtTime(.0001,t+n.d); o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+n.d+.02); t+=n.d*.9; }
+  }
+
+  /* ===================== HELPERS ===================== */
+  function buildEndpoint(route){
+    const u = new URL(/^https?:\/\//i.test(st.baseUrl)?st.baseUrl:('https://'+st.baseUrl));
+    const ep = new URL('/', u); ep.searchParams.set('route', route);
+    return ep.toString();
+  }
+  function sanitizeBase(s){ s=String(s||'').trim(); if(!s) return DEFAULT_BASE; return s.replace(/\s+/g,'').replace(/\/+$/,''); }
+  function getMs(it){ if(typeof it.ts==='number' && it.ts>0) return it.ts; const d=new Date(it.time); return isNaN(d)?0:d.getTime(); }
+  function isFresh(it,ms){ const t=getMs(it); return t && (Date.now()-t)<=ms; }
+  function persistDone(){ localStorage.setItem('mon.done', JSON.stringify([...st.done])); }
+  function setStatus(s){ els.status.textContent = s; }
+  function updateUnseen(){ if(st.unseenCount>0){ els.newCount.style.display='inline-flex'; els.newCount.textContent=String(st.unseenCount); document.title=`(${st.unseenCount}) Monitor Pesanan`; } else { els.newCount.style.display='none'; document.title='Monitor Pesanan'; } }
+  function num(n){ return Number(n||0).toLocaleString('id-ID'); }
+  function fmtTime(t){ const d=new Date(t); return isNaN(d)?String(t||'-'):d.toLocaleString('id-ID',{hour12:false}); }
+  function defined(v){ return v!==undefined && v!==null && !(typeof v==='number' && isNaN(v)); }
+  function esc(s){ return String(s).replace(/[&<>"]/g,c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+  function escAttr(s){ return String(s).replace(/"/g,'&quot;'); }
+  function css(s){ return String(s).replace(/[^a-zA-Z0-9_-]/g,'_'); }
+  function debounce(fn,ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; }
+  function toast(msg){ const el=document.createElement('div'); el.textContent=msg; el.style.cssText='position:fixed;left:50%;top:10px;transform:translateX(-50%);background:#0f172a;border:1px solid var(--line);padding:8px 12px;border-radius:10px;color:#e5e7eb;z-index:9999'; document.body.appendChild(el); setTimeout(()=>el.remove(),1500); }
+})();
+</script>
+</body>
+</html>
