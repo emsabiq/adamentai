@@ -432,7 +432,7 @@
       ``,
       `Metode: ${String(it.payment||'-').toUpperCase()}`,
       `Status: ${String(it.status||'-')}`,
-      `Ringkasan: ${it.ring||'-'}`,
+      `Ringkasan: ${esc(it.ring||'-')}`,
       `Jarak/ETA: ${defined(dist)?dist+' km':'-'} • ${defined(eta)?('~'+eta+' min'):'-'}`,
       ``,
       `Terima kasih 🙏`
