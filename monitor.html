@@ -145,9 +145,13 @@
 
     <div class="field">
       <label>Suara & Notifikasi</label>
-      <div class="row">
+      <div class="row" style="gap:6px;flex-wrap:wrap">
         <button id="soundBtn" class="btn secondary small">🔊 Enable Sound</button>
         <button id="notifBtn" class="btn ghost small">🔔 Izinkan Notifikasi</button>
+        <span class="chip" id="pushState">Push: —</span>
+      </div>
+      <div id="iosHint" class="small" style="color:#fbbf24;display:none;margin-top:6px">
+        iOS Safari hanya mendukung Web Push jika situs dipasang ke Home Screen (Add to Home Screen).
       </div>
       <label class="small muted">Volume:
         <input id="volume" type="range" min="0" max="100" value="80">
@@ -177,7 +181,8 @@
     markReadBtn: $('#markReadBtn'),
     soundBtn: $('#soundBtn'), notifBtn: $('#notifBtn'), testBeep: $('#testBeep'),
     volume: $('#volume'), beepNew: $('#beepNew'), beepSettle: $('#beepSettle'),
-    status: $('#status'), grid: $('#grid'), newCount: $('#newCount')
+    status: $('#status'), grid: $('#grid'), newCount: $('#newCount'),
+    pushState: $('#pushState'), iosHint: $('#iosHint')
   };
 
   const st = {
@@ -189,6 +194,7 @@
 
   initSaved();
   bindUI();
+  detectIOSHint();
 
   if (st.token) {
     setStatus('Menghubungkan…');
@@ -228,12 +234,15 @@
 
     els.soundBtn.addEventListener('click', async ()=>{ await ensureAudio(); toast('Sound siap ✅'); });
 
-    // ✅ ganti tombol notifikasi: full flow register SW + subscribe + simpan ke Worker
+    // tombol notifikasi → full flow register SW + subscribe + simpan ke Worker
     els.notifBtn.addEventListener('click', async ()=>{
       try{
+        els.pushState.textContent = 'Push: mendaftarkan…';
         await enablePush(st.baseUrl, st.token);
+        els.pushState.textContent = 'Push: Subscribed ✅';
         toast('Push notifications aktif ✅');
       }catch(err){
+        els.pushState.textContent = 'Push: gagal';
         toast('Gagal aktifkan push: ' + (err?.message || err));
       }
     });
@@ -273,6 +282,16 @@
     const vol = +(localStorage.getItem('mon.vol')||'80'); els.volume.value = String(vol);
     const bN = localStorage.getItem('mon.beepNew'); if (bN!==null) els.beepNew.checked = (bN==='1');
     const bS = localStorage.getItem('mon.beepSettle'); if (bS!==null) els.beepSettle.checked = (bS==='1');
+  }
+
+  function detectIOSHint(){
+    const ua = navigator.userAgent || '';
+    const isiOS = /iPad|iPhone|iPod/.test(ua);
+    const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
+    if (isiOS && isSafari) {
+      // iOS Safari: Push hanya untuk PWA (Add to Home Screen)
+      els.iosHint.style.display = 'block';
+    }
   }
 
   /* ===================== DATA (poll orders) ===================== */
@@ -506,21 +525,21 @@
     const perm = await Notification.requestPermission();
     if (perm !== 'granted') throw new Error('Izin notifikasi ditolak');
 
-    // ✅ karena sw.js di ROOT → pakai '/sw.js'
+    // sw.js di ROOT origin → gunakan path absolut '/sw.js'
     const reg = await navigator.serviceWorker.register('/sw.js');
 
-    // ambil VAPID public key dari Worker
+    // Ambil VAPID public key dari Worker
     const keyResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-key');
-    const keyJson = await keyResp.json();
+    const keyJson = await keyResp.json().catch(()=>null);
     if (!keyResp.ok || !keyJson || !keyJson.key) throw new Error('Gagal ambil VAPID key');
 
-    // subscribe
+    // Subscribe
     const sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(keyJson.key)
     });
 
-    // simpan ke Worker (pakai MONITOR_TOKEN yang kamu isi di drawer)
+    // Simpan ke Worker (pakai MONITOR_TOKEN)
     const saveResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-sub', {
       method: 'POST',
       headers: { 'content-type':'application/json', 'authorization':'Bearer '+monitorToken },
