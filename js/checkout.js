@@ -319,6 +319,7 @@ async function checkout(desktop){
       delivery_method: (mode === 'pickup' ? 'pickup' : 'delivery'),
       shipping_fee: shippingFee,
       shipping_address: (mode === 'delivery') ? (ship.address || '') : 'Ambil di Toko',
+      address_text: (ship.address || addr || ''), // bantu fallback di Apps Script
       lat: lat,
       lng: lng,
 
@@ -404,4 +405,3 @@ export {
   markRequiredInputs,
   checkout,
 };
-  
