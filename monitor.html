@@ -167,6 +167,8 @@
 (function(){
   const DEFAULT_BASE = 'https://midtrans-proxy.msabiq-stan.workers.dev';
   const STORE_NAME = 'Adamentai - All About Mentai';
+  const STORE_LAT = 3.5720893;
+  const STORE_LNG = 98.7022312;
 
   const $ = (s)=>document.querySelector(s);
   const els = {
@@ -407,37 +409,71 @@
   }
 
   /* ===================== WA & PRINT ===================== */
-  function buildWaText(it){
-    const items = Array.isArray(it.items)?it.items:[];
-    const linesItems = items.map(x=>`- ${x.name} x${x.qty} @ Rp ${num(x.price)} = Rp ${num(x.qty*x.price)}`);
-    const subtotal = +it.total_no_ship||0;
-    const ongkir = +it.shipping_fee||0;
-    const grand = +(it.grand_total ?? (subtotal+ongkir));
-    const ship = it.shipping||{};
-    const dist = defined(ship.distance_km)?ship.distance_km:it.distance_km;
-    const eta  = defined(ship.eta_min)?ship.eta_min:it.eta_min;
-    return [
-      `*${STORE_NAME}*`,
-      `📦 *Pesanan*`,
-      `ID: ${it.order_id}`,
-      `Nama: ${it.customer_name||'-'}`,
-      `HP: ${it.phone||'-'}`,
-      `Alamat: ${it.address||'-'}`,
-      ``,
-      `*Rincian*`,
-      ...linesItems,
-      `Subtotal: Rp ${num(subtotal)}`,
-      `Ongkir: Rp ${num(ongkir)}`,
-      `*Grand Total: Rp ${num(grand)}*`,
-      ``,
-      `Metode: ${String(it.payment||'-').toUpperCase()}`,
-      `Status: ${String(it.status||'-')}`,
-      `Ringkasan: ${esc(it.ring||'-')}`,
-      `Jarak/ETA: ${defined(dist)?dist+' km':'-'} • ${defined(eta)?('~'+eta+' min'):'-'}`,
-      ``,
-      `Terima kasih 🙏`
-    ].join('\n');
-  }
+function buildWaText(it){
+  const items = Array.isArray(it.items)?it.items:[];
+  const linesItems = items.map(x=>`- ${x.name} x${x.qty} @ Rp ${num(x.price)} = Rp ${num(x.qty*x.price)}`);
+  const subtotal = +it.total_no_ship||0;
+  const ongkir = +it.shipping_fee||0;
+  const grand = +(it.grand_total ?? (subtotal+ongkir));
+  const ship = it.shipping||{};
+  const dist = defined(ship.distance_km)?ship.distance_km:it.distance_km;
+  const eta  = defined(ship.eta_min)?ship.eta_min:it.eta_min;
+
+  // === DEST (customer) bisa: "lat,lng" / {lat,lng} / [lat,lng] / alamat teks
+  const dest = ship.dest;
+  const addr = String(it.address || ship.address || '');
+  const destQuery = (() => {
+    if (typeof dest === 'string') {
+      const m = dest.match(/-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?/);
+      if (m) return encodeURIComponent(m[0]);
+    }
+    if (dest && typeof dest === 'object') {
+      const lat = dest.lat ?? dest.latitude ?? (Array.isArray(dest) ? dest[0] : undefined);
+      const lng = dest.lng ?? dest.longitude ?? (Array.isArray(dest) ? dest[1] : undefined);
+      if (defined(lat) && defined(lng)) return encodeURIComponent(`${lat},${lng}`);
+    }
+    return addr ? encodeURIComponent(addr) : '';
+  })();
+
+  // === ORIGIN (toko) tetap
+  const originQuery = encodeURIComponent(`${STORE_LAT},${STORE_LNG}`);
+
+  const pinUrl   = destQuery ? `https://www.google.com/maps/search/?api=1&query=${destQuery}` : '';
+  // Jika dest tidak ada, tetap arahkan ke toko (biar ada peta)
+  const routeUrl = destQuery
+    ? `https://www.google.com/maps/dir/?api=1&origin=${originQuery}&destination=${destQuery}&travelmode=driving`
+    : `https://www.google.com/maps/dir/?api=1&destination=${originQuery}&travelmode=driving`;
+
+  const mapLines = [
+    `📍 Maps (Pin): ${pinUrl || '—'}`,
+    `🧭 Maps (Rute dari Toko): ${routeUrl}`,
+    ``
+  ];
+
+  return [
+    `*${STORE_NAME}*`,
+    `📦 *Pesanan*`,
+    `ID: ${it.order_id}`,
+    `Nama: ${it.customer_name||'-'}`,
+    `HP: ${it.phone||'-'}`,
+    `Alamat: ${it.address||'-'}`,
+    ``,
+    `*Rincian*`,
+    ...linesItems,
+    `Subtotal: Rp ${num(subtotal)}`,
+    `Ongkir: Rp ${num(ongkir)}`,
+    `*Grand Total: Rp ${num(grand)}*`,
+    ``,
+    `Metode: ${String(it.payment||'-').toUpperCase()}`,
+    `Status: ${String(it.status||'-')}`,
+    `Ringkasan: ${esc(it.ring||'-')}`,
+    `Jarak/ETA: ${defined(dist)?dist+' km':'-'} • ${defined(eta)?('~'+eta+' min'):'-'}`,
+    ``,
+    ...mapLines,
+    `Terima kasih 🙏`
+  ].join('\n');
+}
+
 
   function printReceipt(it){
     const items = Array.isArray(it.items)?it.items:[];
