@@ -5,9 +5,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Monitor Pesanan</title>
 <meta name="theme-color" content="#0f172a">
-<!-- iOS PWA -->
+<!-- PWA metas -->
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- Favicon inline biar tidak 404 -->
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="%230f172a"/><text x="50%" y="55%" font-size="34" text-anchor="middle" fill="%23ffffff" font-family="Arial,Helvetica,sans-serif">M</text></svg>'>
 <style>
   :root{
     --bg:#0b1220; --panel:#0f172a; --card:#111827; --line:rgba(148,163,184,.16);
@@ -23,18 +26,8 @@
   body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Inter}
   a{color:inherit;text-decoration:none}
 
-  /* HEADER + safe area */
-  header{
-    position:sticky;top:0;z-index:50;
-    background:rgba(15,23,42,.92);
-    border-bottom:1px solid var(--line);
-    backdrop-filter:blur(6px);
-    padding-top:calc(6px + var(--s-top));
-  }
-  .wrap{
-    max-width:1080px;margin:0 auto;
-    padding:10px calc(12px + var(--s-right)) 10px calc(12px + var(--s-left));
-  }
+  header{position:sticky;top:0;z-index:50;background:rgba(15,23,42,.92);border-bottom:1px solid var(--line);backdrop-filter:blur(6px);padding-top:calc(6px + var(--s-top))}
+  .wrap{max-width:1080px;margin:0 auto;padding:10px calc(12px + var(--s-right)) 10px calc(12px + var(--s-left))}
   .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:17px}
   .icon{width:18px;height:18px;vertical-align:-3px;opacity:.95}
@@ -48,15 +41,7 @@
   .pill{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:6px 10px}
   input[type=text],input[type=password],select{background:var(--panel);border:1px solid var(--line);color:var(--fg);border-radius:10px;padding:8px 10px;outline:none;min-height:36px}
 
-  /* FILTER BAR */
-  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-  .filters .grow{flex:1 1 260px}
-
-  /* MAIN + bottom safe area */
-  main{
-    max-width:1080px;margin:0 auto;
-    padding:12px calc(12px + var(--s-right)) calc(90px + var(--s-bottom)) calc(12px + var(--s-left));
-  }
+  main{max-width:1080px;margin:0 auto;padding:12px calc(12px + var(--s-right)) calc(90px + var(--s-bottom)) calc(12px + var(--s-left))}
   .statusline{color:var(--muted);margin:4px 2px 12px}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
   @media (max-width:420px){ .grid{grid-template-columns:1fr} }
@@ -199,7 +184,10 @@
     baseUrl: DEFAULT_BASE, token: '', pollMs: 10000, timer: null, paused: false,
     orders: new Map(), lastTouched: new Set(), unseenCount: 0,
     done: new Set(JSON.parse(localStorage.getItem('mon.done')||'[]')),
-    audio: null, gain: null, audioReady: false
+    audio: null, gain: null, audioReady: false,
+    audioArmed: false,            // hanya bunyi setelah user klik "Enable Sound"
+    muteUntil: 0,                 // cooldown global setelah push masuk
+    lastChimeAt: 0                // jaga jarak antar bunyi
   };
 
   initSaved();
@@ -237,9 +225,12 @@
     els.searchBox.addEventListener('input', debounce(()=>render(), 250));
     els.markReadBtn.addEventListener('click', ()=>{ st.lastTouched.clear(); st.unseenCount=0; updateUnseen(); render(); });
 
-    els.soundBtn.addEventListener('click', async ()=>{ await ensureAudio(); toast('Sound siap ✅'); });
+    els.soundBtn.addEventListener('click', async ()=>{
+      await ensureAudio();
+      st.audioArmed = true;      // izinkan bunyi setelah user gesture
+      toast('Sound siap ✅');
+    });
 
-    // ===== Push: simpan semua device (tidak ada replace) =====
     els.notifBtn.addEventListener('click', async ()=>{
       try {
         await enablePush(st.baseUrl, st.token);
@@ -249,12 +240,11 @@
       }
     });
 
-    els.testBeep.addEventListener('click', ()=> chime('new'));
+    els.testBeep.addEventListener('click', ()=> { st.audioArmed = true; chime('new'); });
     els.volume.addEventListener('input', ()=>{ localStorage.setItem('mon.vol', els.volume.value); if (st.gain) st.gain.gain.value = (+els.volume.value||0)/100; });
     els.beepNew.addEventListener('change', ()=> localStorage.setItem('mon.beepNew', els.beepNew.checked?'1':'0'));
     els.beepSettle.addEventListener('change', ()=> localStorage.setItem('mon.beepSettle', els.beepSettle.checked?'1':'0'));
 
-    // Action buttons on cards
     document.addEventListener('click', (ev)=>{
       const b = ev.target.closest('button[data-act]'); if(!b) return;
       const id = b.dataset.id; const it = st.orders.get(id); if(!it){ toast('Pesanan tidak ditemukan'); return; }
@@ -322,10 +312,11 @@
         st.lastTouched.add(id);
         if(String(it.status||'').toLowerCase()==='settlement' && els.beepSettle.checked){
           settleChanged++; notifyAndSound(it,'Pembayaran Berhasil','settle');
-        } else {
-          chime('new');
+        } else if (els.beepNew.checked) {
+          notifyAndSound(it,'Status Pesanan Berubah','new');
         }
       }
+      // ❌ Tidak ada bunyi ketika status tidak berubah
     }
     st.orders = next;
     st.unseenCount += newFound + settleChanged; updateUnseen();
@@ -436,7 +427,7 @@
       ``,
       `Metode: ${String(it.payment||'-').toUpperCase()}`,
       `Status: ${String(it.status||'-')}`,
-      `Ringkasan: ${it.ring||'-'}`,
+      `Ringkasan: ${it.ring||'-')}`,
       `Jarak/ETA: ${defined(dist)?dist+' km':'-'} • ${defined(eta)?('~'+eta+' min'):'-'}`,
       ``,
       `Terima kasih 🙏`
@@ -488,9 +479,14 @@
 
   /* ===================== AUDIO & NOTIF ===================== */
   function notifyAndSound(it,title,type){
-    if (document.visibilityState !== 'visible') notify(it,title);
+    const hidden = document.visibilityState !== 'visible';
+    if (hidden) {            // kalau tab hidden, serahkan bunyi ke OS notification saja
+      notify(it,title);
+      return;
+    }
+    if (!st.audioArmed) return;     // belum klik Enable Sound → jangan bunyi
     chime(type);
-    if(navigator.vibrate) try{navigator.vibrate([220,120,220]);}catch{}
+    if(navigator.vibrate && st.audioArmed) try{navigator.vibrate([220,120,220]);}catch{}
   }
   function notify(it,title){
     if(!('Notification' in window) || Notification.permission!=='granted') return;
@@ -506,11 +502,19 @@
     st.audioReady = true;
   }
   async function chime(type){
-    await ensureAudio(); if(!st.audio||!st.gain) return; const ctx=st.audio; const base=st.gain.gain.value||.6;
+    // Cooldown global & jarak minimum antar bunyi
+    const now = Date.now();
+    if (now < (st.muteUntil||0)) return;
+    if (now - st.lastChimeAt < 800) return; // minimal 0.8 detik antar bunyi
+
+    if (!st.audioArmed) return; // pastikan ada user gesture dulu
+    await ensureAudio(); if(!st.audio||!st.gain) return;
+    const ctx=st.audio; const base=st.gain.gain.value||.6;
     const seq = (type==='settle') ? [{f:1175,d:.25,v:1.0},{f:1568,d:.20,v:.9}] : [{f:784,d:.22,v:1.0},{f:659,d:.18,v:.85},{f:988,d:.22,v:1.0}];
     let t=ctx.currentTime; for(const n of seq){ const o=ctx.createOscillator(), g=ctx.createGain();
       o.type='sine'; o.frequency.setValueAtTime(n.f,t); g.gain.setValueAtTime(.0001,t); g.gain.linearRampToValueAtTime(base*n.v,t+.02);
       g.gain.exponentialRampToValueAtTime(.0001,t+n.d); o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+n.d+.02); t+=n.d*.9; }
+    st.lastChimeAt = now;
   }
 
   /* ===================== PUSH (iOS & Android) ===================== */
@@ -531,15 +535,12 @@
     const finalPerm = (perm === 'granted') ? 'granted' : await askPermission();
     if (finalPerm !== 'granted') throw new Error('Izin notifikasi ditolak');
 
-    // Register SW (harus ada file /sw.js di root domain)
     await navigator.serviceWorker.register('/sw.js', { scope: '/' });
     const reg = await navigator.serviceWorker.ready;
     if (!('pushManager' in reg)) throw new Error('PushManager tidak tersedia');
 
-    // Gunakan subscription yang sudah ada; kalau belum, buat baru
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
-      // Ambil VAPID public key dari Worker
       const keyResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-key', { cache:'no-store' });
       const keyJson = await keyResp.json().catch(()=>null);
       if (!keyResp.ok || !keyJson || !keyJson.key) throw new Error('Gagal ambil VAPID key');
@@ -550,7 +551,6 @@
       });
     }
 
-    // Simpan ke Worker — TANPA replace=1 agar semua device tercatat
     const saveResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-sub', {
       method: 'POST',
       headers: { 'content-type':'application/json', 'authorization':'Bearer '+monitorToken },
@@ -560,19 +560,17 @@
     if (!saveResp.ok || !sv.ok) throw new Error('Gagal simpan subscription (cek Monitor Token).');
   }
 
-  // Terima pesan dari service worker → auto refresh & bunyi
-// === ganti seluruh fungsi bindSWMessages di monitor.html ===
-function bindSWMessages(){
-  if (!('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.addEventListener('message', (ev)=>{
-    const msg = ev.data || {};
-    if (msg && (msg.type==='push-ping' || msg.type==='order-update' || msg.type==='ORDER_PING')) {
-      // CUKUP refresh data; biarkan handleData() yang memutuskan kapan bunyi
-      fetchOrders(true);
-    }
-  });
-}
-
+  // Terima pesan dari service worker → auto refresh (tanpa bunyi langsung)
+  function bindSWMessages(){
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.addEventListener('message', (ev)=>{
+      const msg = ev.data || {};
+      if (msg && (msg.type==='push-ping' || msg.type==='order-update' || msg.type==='ORDER_PING')) {
+        st.muteUntil = Date.now() + 4000; // cooldown 4 detik agar tidak dobel dengan hasil polling
+        fetchOrders(true);
+      }
+    });
+  }
 
   function urlBase64ToUint8Array(base64String){
     const pad = '='.repeat((4 - base64String.length % 4) % 4);
