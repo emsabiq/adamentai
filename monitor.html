@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Monitor Pesanan</title>
 <meta name="theme-color" content="#0f172a">
-<!-- penting untuk iOS A2HS/PWA -->
+<!-- iOS PWA -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
@@ -13,8 +13,6 @@
     --bg:#0b1220; --panel:#0f172a; --card:#111827; --line:rgba(148,163,184,.16);
     --fg:#e5e7eb; --muted:#a7b0c2; --soft:#cbd5e1;
     --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --accent:#3b82f6;
-
-    /* safe-area iOS (fallback 0px di device lain) */
     --s-top: env(safe-area-inset-top, 0px);
     --s-right: env(safe-area-inset-right, 0px);
     --s-bottom: env(safe-area-inset-bottom, 0px);
@@ -25,7 +23,7 @@
   body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Inter}
   a{color:inherit;text-decoration:none}
 
-  /* HEADER (dengan safe-area padding supaya tombol tidak kepotong notch) */
+  /* HEADER + safe area */
   header{
     position:sticky;top:0;z-index:50;
     background:rgba(15,23,42,.92);
@@ -54,7 +52,7 @@
   .filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
   .filters .grow{flex:1 1 260px}
 
-  /* MAIN (tambahkan padding bawah untuk home-indicator iOS) */
+  /* MAIN + bottom safe area */
   main{
     max-width:1080px;margin:0 auto;
     padding:12px calc(12px + var(--s-right)) calc(90px + var(--s-bottom)) calc(12px + var(--s-left));
@@ -80,13 +78,11 @@
   .tag{display:inline-flex;align-items:center;gap:6px;background:rgba(59,130,246,.12);color:#d6e5ff;border:1px solid rgba(59,130,246,.25);padding:2px 8px;border-radius:8px;font-size:12px}
   .actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
 
-  /* ITEMS */
   .items{margin-top:8px;border-top:1px dashed var(--line);padding-top:8px}
   .items ul{list-style:none;margin:8px 0 0;padding:0}
   .items li{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px dashed rgba(148,163,184,.12)}
-  .muted{color:var(--muted)} .small{font-size:12px}
 
-  /* DRAWER */
+  .muted{color:var(--muted)} .small{font-size:12px}
   .drawer{position:fixed;inset:0;display:none;z-index:60}
   .drawer.show{display:block}
   .drawer .mask{position:absolute;inset:0;background:rgba(0,0,0,.35);opacity:0;transition:opacity .2s ease}
@@ -97,10 +93,6 @@
   .field{display:flex;flex-direction:column;gap:6px;margin:10px 0}
   .chip{padding:4px 8px;border-radius:999px;background:var(--panel);border:1px solid var(--line);color:var(--muted);font-size:12px}
   .countdot{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;background:var(--bad);color:#fff;border-radius:999px;font-size:12px;font-weight:700;padding:0 6px;margin-left:6px}
-
-  /* DEBUG PANEL */
-  .dbg{margin-top:10px;border:1px dashed var(--line);border-radius:10px;padding:8px;color:#cbd5e1;background:#0f172a;word-break:break-all}
-  .dbg b{color:#fff}
 </style>
 </head>
 <body>
@@ -135,10 +127,7 @@
 
 <main>
   <div id="status" class="wrap statusline">Menunggu konfigurasi…</div>
-  <div class="wrap">
-    <div class="grid" id="grid"></div>
-    <div id="debug" class="dbg" style="display:none"></div>
-  </div>
+  <div class="wrap"><div class="grid" id="grid"></div></div>
 </main>
 
 <!-- DRAWER -->
@@ -175,7 +164,6 @@
       <div class="row">
         <button id="soundBtn" class="btn secondary small">🔊 Enable Sound</button>
         <button id="notifBtn" class="btn ghost small">🔔 Izinkan Notifikasi</button>
-        <button id="dbgBtn" class="btn ghost small">❓ Debug</button>
       </div>
       <label class="small muted">Volume:
         <input id="volume" type="range" min="0" max="100" value="80">
@@ -202,9 +190,9 @@
     baseUrl: $('#baseUrl'), resetBase: $('#resetBase'),
     filterStatus: $('#filterStatus'), hideDone: $('#hideDone'), searchBox: $('#searchBox'),
     markReadBtn: $('#markReadBtn'),
-    soundBtn: $('#soundBtn'), notifBtn: $('#notifBtn'), testBeep: $('#testBeep'), dbgBtn: $('#dbgBtn'),
+    soundBtn: $('#soundBtn'), notifBtn: $('#notifBtn'), testBeep: $('#testBeep'),
     volume: $('#volume'), beepNew: $('#beepNew'), beepSettle: $('#beepSettle'),
-    status: $('#status'), grid: $('#grid'), newCount: $('#newCount'), debug: $('#debug')
+    status: $('#status'), grid: $('#grid'), newCount: $('#newCount')
   };
 
   const st = {
@@ -220,6 +208,7 @@
   if (st.token) { setStatus('Menghubungkan…'); startPolling(true); }
   else { setStatus('Buka menu ☰ → isi Monitor Token → Simpan & Mulai.'); openDrawer(true); }
 
+  /* ===================== UI ===================== */
   function bindUI(){
     els.openDrawer.addEventListener('click', ()=> openDrawer(true));
     els.closeDrawer.addEventListener('click', ()=> openDrawer(false));
@@ -263,9 +252,15 @@
     els.beepNew.addEventListener('change', ()=> localStorage.setItem('mon.beepNew', els.beepNew.checked?'1':'0'));
     els.beepSettle.addEventListener('change', ()=> localStorage.setItem('mon.beepSettle', els.beepSettle.checked?'1':'0'));
 
-    els.dbgBtn.addEventListener('click', async ()=>{
-      els.debug.style.display = els.debug.style.display ? '' : 'block';
-      await showDebug();
+    // Action buttons on cards
+    document.addEventListener('click', (ev)=>{
+      const b = ev.target.closest('button[data-act]'); if(!b) return;
+      const id = b.dataset.id; const it = st.orders.get(id); if(!it){ toast('Pesanan tidak ditemukan'); return; }
+      const act = b.dataset.act;
+      if (act==='wa'){ window.open('https://wa.me/?text='+encodeURIComponent(buildWaText(it)), '_blank'); }
+      else if (act==='print'){ printReceipt(it); }
+      else if (act==='done'){ if(st.done.has(id)) st.done.delete(id); else st.done.add(id); persistDone(); render(); }
+      else if (act==='toggle-items'){ const sec = document.getElementById('items-'+css(id)); if(sec){ sec.hidden=!sec.hidden; b.textContent=sec.hidden?'Lihat rincian':'Sembunyikan rincian'; } }
     });
   }
 
@@ -284,7 +279,7 @@
     const bS = localStorage.getItem('mon.beepSettle'); if (bS!==null) els.beepSettle.checked = (bS==='1');
   }
 
-  /* ====== DATA ====== */
+  /* ===================== DATA ===================== */
   function startPolling(immediate=false){
     stopPolling();
     if (!st.token){ setStatus('Token kosong. Buka menu ☰ untuk login.'); return; }
@@ -311,15 +306,24 @@
   function handleData(payload){
     const arr = Array.isArray(payload.data)?payload.data.slice():[];
     arr.sort((a,b)=> (getMs(b)-getMs(a)) || ((b.rownum||0)-(a.rownum||0)));
+
     let newFound=0, settleChanged=0;
     const next = new Map(st.orders);
+
     for (const it of arr){
       const id=String(it.order_id||''); const prev=st.orders.get(id); next.set(id,it);
-      if(!prev){ st.lastTouched.add(id); newFound++; if(els.beepNew.checked) notifyAndSound(it,'Pesanan Baru','new'); }
-      else if((prev.status||'') !== (it.status||'')){
+
+      if(!prev){
+        st.lastTouched.add(id); newFound++;
+        if(els.beepNew.checked) notifyAndSound(it,'Pesanan Baru','new');
+      } else if((prev.status||'') !== (it.status||'')){
         st.lastTouched.add(id);
-        if(String(it.status||'').toLowerCase()==='settlement' && els.beepSettle.checked){ settleChanged++; notifyAndSound(it,'Pembayaran Berhasil','settle'); }
-        else notify(it,'Status Berubah: '+(it.status||'-'));
+        if(String(it.status||'').toLowerCase()==='settlement' && els.beepSettle.checked){
+          settleChanged++; notifyAndSound(it,'Pembayaran Berhasil','settle');
+        } else {
+          // Hanya bunyi di foreground; OS notif biar dihandle oleh push (SW)
+          chime('new');
+        }
       }
     }
     st.orders = next;
@@ -328,7 +332,7 @@
     render(arr);
   }
 
-  /* ====== RENDER ====== */
+  /* ===================== RENDER ===================== */
   function render(listOpt){
     const qtxt = (els.searchBox.value||'').toLowerCase();
     const filter = (els.filterStatus.value||'').toLowerCase();
@@ -405,7 +409,7 @@
     </div>`;
   }
 
-  /* ====== WA & PRINT ====== */
+  /* ===================== WA & PRINT ===================== */
   function buildWaText(it){
     const items = Array.isArray(it.items)?it.items:[];
     const linesItems = items.map(x=>`- ${x.name} x${x.qty} @ Rp ${num(x.price)} = Rp ${num(x.qty*x.price)}`);
@@ -481,8 +485,13 @@
     win.document.write(html); win.document.close();
   }
 
-  /* ====== AUDIO ====== */
-  function notifyAndSound(it,title,type){ notify(it,title); chime(type); if(navigator.vibrate) try{navigator.vibrate([220,120,220]);}catch{} }
+  /* ===================== AUDIO & NOTIF ===================== */
+  function notifyAndSound(it,title,type){
+    // OS notif hanya saat background, supaya tidak dobel sama push dari SW.
+    if (document.visibilityState !== 'visible') notify(it,title);
+    chime(type);
+    if(navigator.vibrate) try{navigator.vibrate([220,120,220]);}catch{}
+  }
   function notify(it,title){
     if(!('Notification' in window) || Notification.permission!=='granted') return;
     const body = `${it.customer_name||'-'} • Rp ${num(it.grand_total||0)}\n${(it.address||'-').slice(0,120)}`;
@@ -504,45 +513,46 @@
       g.gain.exponentialRampToValueAtTime(.0001,t+n.d); o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+n.d+.02); t+=n.d*.9; }
   }
 
-  /* ====== PUSH (iOS-friendly) ====== */
+  /* ===================== PUSH (iOS & Android) ===================== */
   async function enablePush(workerBase, monitorToken){
     if (!('serviceWorker' in navigator)) throw new Error('Service Worker tidak didukung');
 
-    // iOS: wajib dari Home Screen
+    // Wajib Home Screen khusus iOS; Android/desktop boleh di tab biasa.
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     const standalone = (window.navigator.standalone === true) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-    if (!standalone) throw new Error('Buka dari ikon Home Screen dulu, baru aktifkan.');
+    if (isIOS && !standalone) throw new Error('Di iPhone, buka dari ikon Home Screen dulu.');
 
-    // minta izin: dukung promise/callback (Safari lama)
+    // Minta izin (support Safari lama)
     const askPermission = () => {
       try { const p = Notification.requestPermission(); if (p && typeof p.then === 'function') return p; } catch(_) {}
       return new Promise((resolve)=>{ try{ Notification.requestPermission(resolve); } catch(e){ resolve('denied'); } });
     };
-    const permNow = (window.Notification && Notification.permission) || 'default';
-    const resultPerm = (permNow === 'granted') ? 'granted' : await askPermission();
-    if (resultPerm !== 'granted') throw new Error('Izin notifikasi ditolak');
+    const perm = (window.Notification && Notification.permission) || 'default';
+    const finalPerm = (perm === 'granted') ? 'granted' : await askPermission();
+    if (finalPerm !== 'granted') throw new Error('Izin notifikasi ditolak');
 
-    // register SW root
+    // Register SW root
     const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
     await navigator.serviceWorker.ready;
 
     if (!('pushManager' in reg)) throw new Error('PushManager tidak tersedia');
 
-    // bersih langganan lama
+    // Hapus subscription lama supaya endpoint fresh
     try { const old = await reg.pushManager.getSubscription(); if (old) await old.unsubscribe(); } catch {}
 
-    // ambil VAPID key
+    // Ambil VAPID public key dari Worker
     const keyResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-key', { cache:'no-store' });
     const keyJson = await keyResp.json().catch(()=>null);
     if (!keyResp.ok || !keyJson || !keyJson.key) throw new Error('Gagal ambil VAPID key');
 
-    // buat subscription
+    // Subscribe
     const sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(keyJson.key)
     });
 
-    // simpan ke Worker (MONITOR_TOKEN)
-    const saveResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-sub', {
+    // Simpan ke Worker — pakai replace=1 supaya hanya device ini yang aktif
+    const saveResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-sub&replace=1', {
       method: 'POST',
       headers: { 'content-type':'application/json', 'authorization':'Bearer '+monitorToken },
       body: JSON.stringify(sub)
@@ -560,42 +570,7 @@
     return out;
   }
 
-  /* ====== DEBUG ====== */
-  async function showDebug(){
-    const lines = [];
-    const standalone = (window.navigator.standalone === true) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
-    lines.push(`<b>UA</b>: ${esc(navigator.userAgent)}`);
-    lines.push(`<b>Standalone</b>: ${standalone}`);
-    lines.push(`<b>Notification API</b>: ${!!window.Notification} (perm: ${(window.Notification && Notification.permission) || '(n/a)'})`);
-    lines.push(`<b>ServiceWorker</b>: ${'serviceWorker' in navigator}`);
-
-    try{
-      const reg = await navigator.serviceWorker.getRegistration('/');
-      lines.push(`<b>SW Registered</b>: ${!!reg}`);
-      if (reg){
-        const sub = await reg.pushManager.getSubscription();
-        lines.push(`<b>Push Sub</b>: ${!!sub}`);
-        if (sub){
-          lines.push(`<b>Endpoint</b>: ${esc(sub.endpoint)}`);
-        }
-      }
-    }catch(e){
-      lines.push(`<b>SW Error</b>: ${esc(String(e))}`);
-    }
-
-    // Worker debug
-    try{
-      const r = await fetch(st.baseUrl.replace(/\/+$/,'') + '/?route=__debug_admin', { cache:'no-store' });
-      const j = await r.json();
-      lines.push(`<b>Worker Debug</b>: hasAdminEnv=${j.hasAdminEnv}, hasMonitorToken=${j.hasMonitorToken}, vapid=${j.vapid}`);
-    }catch(e){
-      lines.push(`<b>Worker Debug</b>: gagal (${esc(String(e))})`);
-    }
-
-    els.debug.innerHTML = lines.join('<br>') + `<div class="small muted" style="margin-top:6px">Jika Standalone:false, kamu masih di Safari tab. Buka dari ikon Home Screen.</div>`;
-  }
-
-  /* ====== HELPERS ====== */
+  /* ===================== HELPERS ===================== */
   function buildEndpoint(route){
     const u = new URL(/^https?:\/\//i.test(st.baseUrl)?st.baseUrl:('https://'+st.baseUrl));
     const ep = new URL('/', u); ep.searchParams.set('route', route); return ep.toString();
