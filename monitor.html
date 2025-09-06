@@ -217,15 +217,9 @@
       openDrawer(false);
     });
 
-    els.resetBase.addEventListener('click', ()=>{
-      els.baseUrl.value = DEFAULT_BASE;
-    });
+    els.resetBase.addEventListener('click', ()=>{ els.baseUrl.value = DEFAULT_BASE; });
 
-    els.pauseBtn.addEventListener('click', ()=>{
-      st.paused=!st.paused;
-      els.pauseBtn.textContent = st.paused ? 'Resume' : 'Pause';
-      if (st.paused) stopPolling(); else startPolling();
-    });
+    els.pauseBtn.addEventListener('click', ()=>{ st.paused=!st.paused; els.pauseBtn.textContent = st.paused ? 'Resume' : 'Pause'; if (st.paused) stopPolling(); else startPolling(); });
 
     els.filterStatus.addEventListener('change', ()=>{ localStorage.setItem('mon.filter', els.filterStatus.value); render(); });
     els.hideDone.addEventListener('change', ()=>{ localStorage.setItem('mon.hideDone', els.hideDone.checked?'1':'0'); render(); });
@@ -233,7 +227,17 @@
     els.markReadBtn.addEventListener('click', ()=>{ st.lastTouched.clear(); st.unseenCount=0; updateUnseen(); render(); });
 
     els.soundBtn.addEventListener('click', async ()=>{ await ensureAudio(); toast('Sound siap ✅'); });
-    els.notifBtn.addEventListener('click', async ()=>{ try{ const r=await Notification.requestPermission(); toast(r==='granted'?'Notifikasi diizinkan ✅':'Ditolak/dibatasi'); }catch{ toast('Notifikasi tidak didukung'); } });
+
+    // ✅ ganti tombol notifikasi: full flow register SW + subscribe + simpan ke Worker
+    els.notifBtn.addEventListener('click', async ()=>{
+      try{
+        await enablePush(st.baseUrl, st.token);
+        toast('Push notifications aktif ✅');
+      }catch(err){
+        toast('Gagal aktifkan push: ' + (err?.message || err));
+      }
+    });
+
     els.testBeep.addEventListener('click', ()=> chime('new'));
     els.volume.addEventListener('input', ()=>{ localStorage.setItem('mon.vol', els.volume.value); if (st.gain) st.gain.gain.value = (+els.volume.value||0)/100; });
     els.beepNew.addEventListener('change', ()=> localStorage.setItem('mon.beepNew', els.beepNew.checked?'1':'0'));
@@ -271,7 +275,7 @@
     const bS = localStorage.getItem('mon.beepSettle'); if (bS!==null) els.beepSettle.checked = (bS==='1');
   }
 
-  /* ===================== DATA ===================== */
+  /* ===================== DATA (poll orders) ===================== */
   function startPolling(immediate=false){
     stopPolling();
     if (!st.token){ setStatus('Token kosong. Buka menu ☰ untuk login.'); return; }
@@ -318,7 +322,7 @@
     render(arr);
   }
 
-  /* ===================== RENDER ===================== */
+  /* ===================== RENDER (kartu) ===================== */
   function render(listOpt){
     const qtxt = (els.searchBox.value||'').toLowerCase();
     const filter = (els.filterStatus.value||'').toLowerCase();
@@ -494,6 +498,48 @@
       g.gain.exponentialRampToValueAtTime(.0001,t+n.d); o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t+n.d+.02); t+=n.d*.9; }
   }
 
+  /* ===================== PUSH ENABLER ===================== */
+  async function enablePush(workerBase, monitorToken){
+    // cek dukungan
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      throw new Error('Browser tidak mendukung push');
+    }
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') throw new Error('Izin notifikasi ditolak');
+
+    // 1) register SW — simpan sw.js di origin yang sama (root): /sw.js
+    const reg = await navigator.serviceWorker.register('/sw.js'); // jika sw.js di subfolder, sesuaikan path
+
+    // 2) ambil VAPID public key dari Worker
+    const keyResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-key');
+    const keyJson = await keyResp.json();
+    if (!keyResp.ok || !keyJson || !keyJson.key) throw new Error('Gagal ambil VAPID key');
+
+    // 3) subscribe
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(keyJson.key)
+    });
+
+    // 4) simpan ke Worker (pakai MONITOR_TOKEN)
+    const saveResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-sub', {
+      method: 'POST',
+      headers: { 'content-type':'application/json', 'authorization':'Bearer '+monitorToken },
+      body: JSON.stringify(sub)
+    });
+    const sv = await saveResp.json().catch(()=>({}));
+    if (!saveResp.ok || !sv.ok) throw new Error('Gagal simpan subscription');
+  }
+
+  function urlBase64ToUint8Array(base64String){
+    const pad = '='.repeat((4 - base64String.length % 4) % 4);
+    const b64 = (base64String + pad).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(b64);
+    const out = new Uint8Array(raw.length);
+    for (let i=0;i<raw.length;i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
   /* ===================== HELPERS ===================== */
   function buildEndpoint(route){
     const u = new URL(/^https?:\/\//i.test(st.baseUrl)?st.baseUrl:('https://'+st.baseUrl));
@@ -516,5 +562,6 @@
   function toast(msg){ const el=document.createElement('div'); el.textContent=msg; el.style.cssText='position:fixed;left:50%;top:10px;transform:translateX(-50%);background:#0f172a;border:1px solid var(--line);padding:8px 12px;border-radius:10px;color:#e5e7eb;z-index:9999'; document.body.appendChild(el); setTimeout(()=>el.remove(),1500); }
 })();
 </script>
+
 </body>
 </html>
