@@ -508,7 +508,12 @@
     if (perm !== 'granted') throw new Error('Izin notifikasi ditolak');
 
     // 1) register SW — simpan sw.js di origin yang sama (root): /sw.js
-    const reg = await navigator.serviceWorker.register('/sw.js'); // jika sw.js di subfolder, sesuaikan path
+    // Daftarkan sw.js relatif ke halaman yang sedang dibuka
+const base = location.pathname.endsWith('/') 
+  ? location.pathname 
+  : location.pathname.replace(/\/[^/]+$/, '/');
+const reg = await navigator.serviceWorker.register(base + 'sw.js', { scope: base });
+
 
     // 2) ambil VAPID public key dari Worker
     const keyResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-key');
