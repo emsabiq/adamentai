@@ -500,33 +500,27 @@
 
   /* ===================== PUSH ENABLER ===================== */
   async function enablePush(workerBase, monitorToken){
-    // cek dukungan
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       throw new Error('Browser tidak mendukung push');
     }
     const perm = await Notification.requestPermission();
     if (perm !== 'granted') throw new Error('Izin notifikasi ditolak');
 
-    // 1) register SW — simpan sw.js di origin yang sama (root): /sw.js
-    // Daftarkan sw.js relatif ke halaman yang sedang dibuka
-const base = location.pathname.endsWith('/') 
-  ? location.pathname 
-  : location.pathname.replace(/\/[^/]+$/, '/');
-const reg = await navigator.serviceWorker.register(base + 'sw.js', { scope: base });
+    // ✅ karena sw.js di ROOT → pakai '/sw.js'
+    const reg = await navigator.serviceWorker.register('/sw.js');
 
-
-    // 2) ambil VAPID public key dari Worker
+    // ambil VAPID public key dari Worker
     const keyResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-key');
     const keyJson = await keyResp.json();
     if (!keyResp.ok || !keyJson || !keyJson.key) throw new Error('Gagal ambil VAPID key');
 
-    // 3) subscribe
+    // subscribe
     const sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(keyJson.key)
     });
 
-    // 4) simpan ke Worker (pakai MONITOR_TOKEN)
+    // simpan ke Worker (pakai MONITOR_TOKEN yang kamu isi di drawer)
     const saveResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-sub', {
       method: 'POST',
       headers: { 'content-type':'application/json', 'authorization':'Bearer '+monitorToken },
