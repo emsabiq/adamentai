@@ -321,7 +321,6 @@
         if(String(it.status||'').toLowerCase()==='settlement' && els.beepSettle.checked){
           settleChanged++; notifyAndSound(it,'Pembayaran Berhasil','settle');
         } else {
-          // Hanya bunyi di foreground; OS notif biar dihandle oleh push (SW)
           chime('new');
         }
       }
@@ -487,7 +486,6 @@
 
   /* ===================== AUDIO & NOTIF ===================== */
   function notifyAndSound(it,title,type){
-    // OS notif hanya saat background, supaya tidak dobel sama push dari SW.
     if (document.visibilityState !== 'visible') notify(it,title);
     chime(type);
     if(navigator.vibrate) try{navigator.vibrate([220,120,220]);}catch{}
@@ -517,12 +515,12 @@
   async function enablePush(workerBase, monitorToken){
     if (!('serviceWorker' in navigator)) throw new Error('Service Worker tidak didukung');
 
-    // Wajib Home Screen khusus iOS; Android/desktop boleh di tab biasa.
+    // iOS wajib dari Home Screen; Android/desktop bebas
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     const standalone = (window.navigator.standalone === true) || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
     if (isIOS && !standalone) throw new Error('Di iPhone, buka dari ikon Home Screen dulu.');
 
-    // Minta izin (support Safari lama)
+    // Minta izin (dukungan promise & callback)
     const askPermission = () => {
       try { const p = Notification.requestPermission(); if (p && typeof p.then === 'function') return p; } catch(_) {}
       return new Promise((resolve)=>{ try{ Notification.requestPermission(resolve); } catch(e){ resolve('denied'); } });
@@ -531,28 +529,27 @@
     const finalPerm = (perm === 'granted') ? 'granted' : await askPermission();
     if (finalPerm !== 'granted') throw new Error('Izin notifikasi ditolak');
 
-    // Register SW root
-    const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-    await navigator.serviceWorker.ready;
-
+    // Register SW (harus ada file /sw.js di root domain)
+    await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    const reg = await navigator.serviceWorker.ready;
     if (!('pushManager' in reg)) throw new Error('PushManager tidak tersedia');
 
-    // Hapus subscription lama supaya endpoint fresh
-    try { const old = await reg.pushManager.getSubscription(); if (old) await old.unsubscribe(); } catch {}
+    // Gunakan subscription yang sudah ada; kalau belum, buat baru
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      // Ambil VAPID public key dari Worker
+      const keyResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-key', { cache:'no-store' });
+      const keyJson = await keyResp.json().catch(()=>null);
+      if (!keyResp.ok || !keyJson || !keyJson.key) throw new Error('Gagal ambil VAPID key');
 
-    // Ambil VAPID public key dari Worker
-    const keyResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-key', { cache:'no-store' });
-    const keyJson = await keyResp.json().catch(()=>null);
-    if (!keyResp.ok || !keyJson || !keyJson.key) throw new Error('Gagal ambil VAPID key');
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(keyJson.key)
+      });
+    }
 
-    // Subscribe
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(keyJson.key)
-    });
-
-    // Simpan ke Worker — pakai replace=1 supaya hanya device ini yang aktif
-    const saveResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-sub&replace=1', {
+    // Simpan ke Worker — TANPA replace=1 agar semua device tercatat
+    const saveResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-sub', {
       method: 'POST',
       headers: { 'content-type':'application/json', 'authorization':'Bearer '+monitorToken },
       body: JSON.stringify(sub)
