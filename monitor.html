@@ -204,6 +204,7 @@
 
   initSaved();
   bindUI();
+  bindSWMessages();
 
   if (st.token) { setStatus('Menghubungkan…'); startPolling(true); }
   else { setStatus('Buka menu ☰ → isi Monitor Token → Simpan & Mulai.'); openDrawer(true); }
@@ -238,6 +239,7 @@
 
     els.soundBtn.addEventListener('click', async ()=>{ await ensureAudio(); toast('Sound siap ✅'); });
 
+    // ===== Push: simpan semua device (tidak ada replace) =====
     els.notifBtn.addEventListener('click', async ()=>{
       try {
         await enablePush(st.baseUrl, st.token);
@@ -556,6 +558,20 @@
     });
     const sv = await saveResp.json().catch(()=>({}));
     if (!saveResp.ok || !sv.ok) throw new Error('Gagal simpan subscription (cek Monitor Token).');
+  }
+
+  // Terima pesan dari service worker → auto refresh & bunyi
+  function bindSWMessages(){
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.addEventListener('message', (ev)=>{
+      const msg = ev.data || {};
+      if (msg && (msg.type==='push-ping' || msg.type==='order-update')) {
+        // refresh data saat ada push
+        fetchOrders(true);
+        // bunyikan nada "settle" jika diberi hint
+        if (msg.hint==='settle') chime('settle'); else chime('new');
+      }
+    });
   }
 
   function urlBase64ToUint8Array(base64String){
