@@ -308,15 +308,20 @@
       if(!prev){
         st.lastTouched.add(id); newFound++;
         if(els.beepNew.checked) notifyAndSound(it,'Pesanan Baru','new');
-      } else if((prev.status||'') !== (it.status||'')){
-        st.lastTouched.add(id);
-        if(String(it.status||'').toLowerCase()==='settlement' && els.beepSettle.checked){
-          settleChanged++; notifyAndSound(it,'Pembayaran Berhasil','settle');
-        } else if (els.beepNew.checked) {
-          notifyAndSound(it,'Status Pesanan Berubah','new');
+      } else {
+        const prevStatus = String(prev.status||'').toLowerCase();
+        const nowStatus  = String(it.status||'').toLowerCase();
+
+        if(prevStatus !== nowStatus){
+          st.lastTouched.add(id);
+          // 🔔 Bunyi HANYA saat masuk settlement/capture
+          if ((nowStatus==='settlement' || nowStatus==='capture') && els.beepSettle.checked){
+            settleChanged++; notifyAndSound(it,'Pembayaran Berhasil','settle');
+          }
+          // Status lain: tidak bunyi
         }
+        // Tidak ada perubahan status: diam
       }
-      // ❌ Tidak ada bunyi ketika status tidak berubah
     }
     st.orders = next;
     st.unseenCount += newFound + settleChanged; updateUnseen();
@@ -427,7 +432,7 @@
       ``,
       `Metode: ${String(it.payment||'-').toUpperCase()}`,
       `Status: ${String(it.status||'-')}`,
-      `Ringkasan: ${it.ring||'-')}`,
+      `Ringkasan: ${it.ring||'-'}`,
       `Jarak/ETA: ${defined(dist)?dist+' km':'-'} • ${defined(eta)?('~'+eta+' min'):'-'}`,
       ``,
       `Terima kasih 🙏`
@@ -491,7 +496,7 @@
   function notify(it,title){
     if(!('Notification' in window) || Notification.permission!=='granted') return;
     const body = `${it.customer_name||'-'} • Rp ${num(it.grand_total||0)}\n${(it.address||'-').slice(0,120)}`;
-    try{ new Notification(title||'Pesanan', { body, tag:String(it.order_id||''), renotify:true }); }catch{}
+    try{ new Notification(title||'Pesanan', { body, tag:String(it.order_id||''), renotify:false }); }catch{}
   }
   async function ensureAudio(){
     if(st.audioReady) return;
