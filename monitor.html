@@ -561,18 +561,18 @@
   }
 
   // Terima pesan dari service worker → auto refresh & bunyi
-  function bindSWMessages(){
-    if (!('serviceWorker' in navigator)) return;
-    navigator.serviceWorker.addEventListener('message', (ev)=>{
-      const msg = ev.data || {};
-      if (msg && (msg.type==='push-ping' || msg.type==='order-update')) {
-        // refresh data saat ada push
-        fetchOrders(true);
-        // bunyikan nada "settle" jika diberi hint
-        if (msg.hint==='settle') chime('settle'); else chime('new');
-      }
-    });
-  }
+// === ganti seluruh fungsi bindSWMessages di monitor.html ===
+function bindSWMessages(){
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.addEventListener('message', (ev)=>{
+    const msg = ev.data || {};
+    if (msg && (msg.type==='push-ping' || msg.type==='order-update' || msg.type==='ORDER_PING')) {
+      // CUKUP refresh data; biarkan handleData() yang memutuskan kapan bunyi
+      fetchOrders(true);
+    }
+  });
+}
+
 
   function urlBase64ToUint8Array(base64String){
     const pad = '='.repeat((4 - base64String.length % 4) % 4);
