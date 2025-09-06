@@ -126,7 +126,7 @@
     <div class="field">
       <label>Monitor Token (Bearer)</label>
       <input id="token" type="password" placeholder="contoh: monitor1234">
-      <div class="row">
+      <div class="row" style="gap:6px;align-items:center">
         <button id="saveBtn" class="btn">Simpan & Mulai</button>
         <span id="savedChip" class="chip">—</span>
       </div>
@@ -148,6 +148,7 @@
       <div class="row" style="gap:6px;flex-wrap:wrap">
         <button id="soundBtn" class="btn secondary small">🔊 Enable Sound</button>
         <button id="notifBtn" class="btn ghost small">🔔 Izinkan Notifikasi</button>
+        <button id="localNotifBtn" class="btn ghost small">🔔 Tes Notif Lokal</button>
         <span class="chip" id="pushState">Push: —</span>
       </div>
       <div id="iosHint" class="small" style="color:#fbbf24;display:none;margin-top:6px">
@@ -179,7 +180,7 @@
     baseUrl: $('#baseUrl'), resetBase: $('#resetBase'),
     filterStatus: $('#filterStatus'), hideDone: $('#hideDone'), searchBox: $('#searchBox'),
     markReadBtn: $('#markReadBtn'),
-    soundBtn: $('#soundBtn'), notifBtn: $('#notifBtn'), testBeep: $('#testBeep'),
+    soundBtn: $('#soundBtn'), notifBtn: $('#notifBtn'), localNotifBtn: $('#localNotifBtn'), testBeep: $('#testBeep'),
     volume: $('#volume'), beepNew: $('#beepNew'), beepSettle: $('#beepSettle'),
     status: $('#status'), grid: $('#grid'), newCount: $('#newCount'),
     pushState: $('#pushState'), iosHint: $('#iosHint')
@@ -234,7 +235,16 @@
 
     els.soundBtn.addEventListener('click', async ()=>{ await ensureAudio(); toast('Sound siap ✅'); });
 
-    // tombol notifikasi → full flow register SW + subscribe + simpan ke Worker
+    els.localNotifBtn.addEventListener('click', async ()=>{
+      try{
+        if (Notification.permission !== 'granted') await Notification.requestPermission();
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (!reg) throw new Error('Service worker belum aktif');
+        await reg.showNotification('Tes lokal', { body:'Notifikasi lokal dari SW', icon:'/icon-192.png', badge:'/badge.png' });
+        toast('Notif lokal terkirim ✅');
+      }catch(e){ toast('Gagal notif lokal: '+(e?.message||e)); }
+    });
+
     els.notifBtn.addEventListener('click', async ()=>{
       try{
         els.pushState.textContent = 'Push: mendaftarkan…';
@@ -288,10 +298,7 @@
     const ua = navigator.userAgent || '';
     const isiOS = /iPad|iPhone|iPod/.test(ua);
     const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
-    if (isiOS && isSafari) {
-      // iOS Safari: Push hanya untuk PWA (Add to Home Screen)
-      els.iosHint.style.display = 'block';
-    }
+    if (isiOS && isSafari) els.iosHint.style.display = 'block';
   }
 
   /* ===================== DATA (poll orders) ===================== */
@@ -522,24 +529,51 @@
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       throw new Error('Browser tidak mendukung push');
     }
+
     const perm = await Notification.requestPermission();
     if (perm !== 'granted') throw new Error('Izin notifikasi ditolak');
 
-    // sw.js di ROOT origin → gunakan path absolut '/sw.js'
-    const reg = await navigator.serviceWorker.register('/sw.js');
+    // register SW di root scope
+    const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    await navigator.serviceWorker.ready.catch(()=>{});
 
-    // Ambil VAPID public key dari Worker
+    // ambil VAPID public key dari Worker
     const keyResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-key');
     const keyJson = await keyResp.json().catch(()=>null);
     if (!keyResp.ok || !keyJson || !keyJson.key) throw new Error('Gagal ambil VAPID key');
 
-    // Subscribe
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(keyJson.key)
-    });
+    // pastikan tidak ada subscription lama yang nyangkut (mencegah mismatch key → fail saat broadcast)
+    try{
+      const existing = await reg.pushManager.getSubscription();
+      if (existing) { try{ await existing.unsubscribe(); }catch{} }
+    }catch{}
 
-    // Simpan ke Worker (pakai MONITOR_TOKEN)
+    // subscribe baru
+    let sub;
+    try{
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(keyJson.key)
+      });
+    }catch(e){
+      // kasus iOS belum di-Add to Home Screen -> NotAllowedError
+      if (String(e?.name||'').includes('NotAllowed')) {
+        throw new Error('Di iOS, install ke Home Screen dulu, lalu coba lagi.');
+      }
+      // kalau ada InvalidStateError karena kunci berbeda, paksa unsubscribe & coba lagi
+      if (String(e?.name||'').includes('InvalidState')) {
+        const old = await reg.pushManager.getSubscription();
+        if (old) try{ await old.unsubscribe(); }catch{}
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(keyJson.key)
+        });
+      } else {
+        throw e;
+      }
+    }
+
+    // kirim ke Worker (pakai MONITOR_TOKEN dari drawer)
     const saveResp = await fetch(workerBase.replace(/\/+$/,'') + '/?route=push-sub', {
       method: 'POST',
       headers: { 'content-type':'application/json', 'authorization':'Bearer '+monitorToken },
@@ -577,7 +611,7 @@
   function escAttr(s){ return String(s).replace(/"/g,'&quot;'); }
   function css(s){ return String(s).replace(/[^a-zA-Z0-9_-]/g,'_'); }
   function debounce(fn,ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; }
-  function toast(msg){ const el=document.createElement('div'); el.textContent=msg; el.style.cssText='position:fixed;left:50%;top:10px;transform:translateX(-50%);background:#0f172a;border:1px solid var(--line);padding:8px 12px;border-radius:10px;color:#e5e7eb;z-index:9999'; document.body.appendChild(el); setTimeout(()=>el.remove(),1500); }
+  function toast(msg){ const el=document.createElement('div'); el.textContent=msg; el.style.cssText='position:fixed;left:50%;top:10px;transform:translateX(-50%);background:#0f172a;border:1px solid var(--line);padding:8px 12px;border-radius:10px;color:#e5e7eb;z-index:9999'; document.body.appendChild(el); setTimeout(()=>el.remove(),1800); }
 })();
 </script>
 
