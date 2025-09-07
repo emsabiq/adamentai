@@ -6,9 +6,8 @@
 
 import { byId, toast, setLoading, money, escapeHTML } from './utils.js';
 import { State } from './state.js';
-import { post } from './api.js';           // <-- gunakan post() langsung agar bisa sisipkan admin_token
-import { ADMIN_PIN } from './config.js';   // <-- server akan cek isAdmin_(b) dengan Script Property ADMIN_TOKEN
-                                           //     samakan nilainya dengan ADMIN_PIN ini agar lolos otorisasi
+import { post } from './api.js';           // gunakan post() langsung agar bisa sisipkan admin_token
+import { ADMIN_PIN } from './config.js';   // server cek isAdmin_(b) via Script Property ADMIN_TOKEN — samakan nilainya dgn ADMIN_PIN
 
 /* =====================
  * POLYFILLS & HELPERS
@@ -100,14 +99,11 @@ function loadImageFromDataURL(dataUrl) {
   });
 }
 async function compressImageToDataURL(file) {
-  // Baca file ke dataURL lalu resize → toDataURL(JPEG, quality)
   const dataUrl = await readFileAsDataURL(file);
   const img = await loadImageFromDataURL(dataUrl);
 
-  // Hitung dimensi
   let { width: w, height: h } = img;
   if (w <= IMG_MAX_W && h <= IMG_MAX_H) {
-    // Tetap kompres ulang ke JPEG agar ukuran turun dan format konsisten
     const canvas0 = document.createElement('canvas');
     canvas0.width = w; canvas0.height = h;
     const ctx0 = canvas0.getContext('2d');
@@ -122,11 +118,7 @@ async function compressImageToDataURL(file) {
   const canvas = document.createElement('canvas');
   canvas.width = nw; canvas.height = nh;
   const ctx = canvas.getContext('2d');
-
-  // Draw scaled
   ctx.drawImage(img, 0, 0, nw, nh);
-
-  // Export JPEG terkompres
   return canvas.toDataURL(IMG_MIME, IMG_QLTY);
 }
 
@@ -264,7 +256,7 @@ function ensureMenuToolsUI() {
       '  <input id="m_filter" placeholder="Cari menu/kategori…" style="max-width:220px;padding:.4rem .6rem;border:1px solid #e5e7eb;border-radius:.5rem"/>' +
       '  <small class="muted" id="m_count"></small>' +
       '</div>' +
-      '<small class="muted">Klik header tabel untuk sortir • Klik kolom <b>Aktif</b> untuk toggle</small>';
+      '<small class="muted">Klik header tabel untuk sortir • Status <b>Aktif</b> ubah via tombol <b>Edit</b></small>';
 
     if (wrap.parentElement) wrap.parentElement.insertBefore(tools, wrap);
 
@@ -356,12 +348,12 @@ export function renderAdminTables() {
     var kat = m.category || m.kategori || m.category_name || '-';
     rowsHTML.push(
       '<tr data-id="' + escapeHTML(String(m.id)) + '"' + (_editingRowId && String(_editingRowId) === String(m.id) ? ' class="is-editing"' : '') + '>' +
-      // >>> HILANGKAN click-to-edit: hapus class "click-edit"
       '  <td>' + escapeHTML(m.name) + '</td>' +
       '  <td>' + escapeHTML(kat) + '</td>' +
       '  <td class="right">' + money(m.price) + '</td>' +
       '  <td class="right">' + String(m.stock) + '</td>' +
-      '  <td class="center quick-active" style="cursor:pointer" title="Klik untuk toggle aktif">' + (m.active ? 'Y' : 'N') + '</td>' +
+      // <<< NONAKTIFKAN quick-toggle: hilangkan class & pointer
+      '  <td class="center">' + (m.active ? 'Y' : 'N') + '</td>' +
       '  <td class="center">' +
       '    <button class="btn btn--ghost" data-action="edit" data-id="' + escapeHTML(String(m.id)) + '">Edit</button>' +
       '    <button class="btn btn--ghost danger" data-action="del" data-id="' + escapeHTML(String(m.id)) + '">Hapus</button>' +
@@ -378,17 +370,7 @@ export function renderAdminTables() {
       var t = e.target;
       if (!t) return;
 
-      // quick toggle aktif
-      var qa = (t.classList && t.classList.contains('quick-active')) ? t : (t.closest ? t.closest('.quick-active') : null);
-      if (qa) {
-        var tr2 = t.closest ? t.closest('tr') : null;
-        var id2 = tr2 ? tr2.getAttribute('data-id') : null;
-        if (id2) {
-          var m2 = (State.itemsAdmin || []).find(function (x) { return String(x.id) === String(id2); });
-          if (m2) quickToggleActive(m2);
-        }
-        return;
-      }
+      // (quick-active dihapus)
 
       // tombol edit/hapus
       var btn = (t.getAttribute && t.getAttribute('data-action')) ? t : (t.closest ? t.closest('[data-action]') : null);
@@ -404,28 +386,9 @@ export function renderAdminTables() {
   paintSortIndicator();
 }
 
-async function quickToggleActive(m) {
-  var payload = {};
-  for (var k in m) if (Object.prototype.hasOwnProperty.call(m, k)) payload[k] = m[k];
-  payload.active = !m.active;
-  withAdminToken(payload);
+// (quickToggleActive dihapus)
 
-  var tbl = byId('tblMenu');
-  var cell = tbl ? tbl.querySelector('tr[data-id="' + cssEsc(String(m.id)) + '"] .quick-active') : null;
-  if (cell) cell.textContent = payload.active ? 'Y' : 'N';
-
-  let j;
-  try { j = await post('menu-save', payload, true); }
-  catch (e) { j = { ok: false }; }
-
-  if (!j || !j.ok) {
-    toast('Gagal toggle aktif' + (j && j.error ? (': ' + j.error) : ''));
-    if (cell) cell.textContent = m.active ? 'Y' : 'N';
-    return;
-  }
-  window.dispatchEvent(new CustomEvent('adm:changed', { detail: { scope: 'menu' } }));
-}
-
+/* ======= Price preview ======= */
 function updatePricePreview() {
   var inp = byId('m_price'); if (!inp) return;
   var lab = byId('m_price_lbl');
@@ -463,17 +426,14 @@ export async function saveMenu() {
 
     let data_url;
     try {
-      // Kompres → JPEG 0.82, max 1200px
-      data_url = await compressImageToDataURL(f);
+      data_url = await compressImageToDataURL(f);   // JPEG 0.82, max 1200px
     } catch (e) {
-      // fallback: kirim apa adanya
-      data_url = await readFileAsDataURL(f);
+      data_url = await readFileAsDataURL(f);        // fallback
     }
 
     var upBtn = byId('btnMenuSave'); setLoading(upBtn, true);
     let up;
     try {
-      // Gunakan endpoint upload-image dengan admin_token
       up = await post('upload-image', withAdminToken({ data_url, name: f.name || ('img-' + Date.now() + '.jpg') }), true);
     } catch (e) { up = { ok: false, error: String(e && e.message || e) }; }
     setLoading(upBtn, false);
@@ -497,7 +457,7 @@ export async function saveMenu() {
     image_url: image_url
   };
   if (!payload.name) { toast('Nama menu wajib diisi'); return; }
-  withAdminToken(payload);
+  payload = withAdminToken(payload);
 
   // 4) simpan
   var btn = byId('btnMenuSave'); setLoading(btn, true);
@@ -635,7 +595,7 @@ export async function saveCat() {
     name: (function () { var el = byId('c_name'); return (el ? el.value : '').trim(); })()
   };
   if (!payload.name) { toast('Nama kategori wajib diisi'); return; }
-  withAdminToken(payload);
+  payload = withAdminToken(payload);
 
   var btn = byId('btnCatSave'); setLoading(btn, true);
   var j;
@@ -763,7 +723,7 @@ async function quickTogglePromoActive(p) {
   var payload = {};
   for (var k in p) if (Object.prototype.hasOwnProperty.call(p, k)) payload[k] = p[k];
   payload.active = !p.active;
-  withAdminToken(payload);
+  payload = withAdminToken(payload);
 
   var tbl = byId('tblPromo');
   var cell = tbl ? tbl.querySelector('tr[data-id="' + cssEsc(String(p.id)) + '"] .promo-active') : null;
@@ -831,7 +791,7 @@ async function savePromoInternal() {
   if (!payload.code) { toast('Kode wajib diisi'); return; }
   if (!(payload.value > 0)) { toast('Nilai promo harus > 0'); return; }
   if (!validatePromoPeriod(payload.start, payload.end)) { toast('Periode tidak valid (akhir < mulai)'); return; }
-  withAdminToken(payload);
+  payload = withAdminToken(payload);
 
   var btn = byId('btnPromoSave'); setLoading(btn, true);
   var j;
