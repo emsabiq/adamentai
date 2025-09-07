@@ -5,6 +5,7 @@ import { byId, money, escapeHTML } from './utils.js';
 import { State, BEST_CATEGORY, STRIP_CATEGORY, getStock } from './state.js';
 import { CARD_CACHE, IMG_OK_URL, driveUrlCandidates, PLACEHOLDER_IMG } from './images.js';
 import { addToCart } from './cart.js';
+import { openProductModal, productHasChoices } from './product.js';
 
 /* =============== Helpers =============== */
 function formatCatBadge(cat){
@@ -96,6 +97,12 @@ function createMenuCard(m){
     }
     if (addBtn){
       addBtn.addEventListener('click', ()=> {
+        // Jika produk punya opsi/add-on → buka modal detail
+        if (productHasChoices(m)) {
+          openProductModal(m);
+          return;
+        }
+        // Tidak punya opsi/add-on → langsung add
         const q = Math.max(1, Number((node.querySelector('.qty')?.value) || 1));
         addToCart(m.id, m.name, Number(m.price), q);
       });
