@@ -8,7 +8,7 @@ import { Api } from './api.js';
 /* =====================
  * KONST & UTIL
  * ===================== */
-var MIN_PICKUP_MINUTES = 30; // aturan bisnis: pickup minimal +30 menit
+var MIN_PICKUP_MINUTES = 30;
 
 function onlyDigits(s){
   return String(s == null ? '' : s).replace(/[^\d]/g,'');
@@ -23,22 +23,10 @@ function yyyymmddHHMM(){
        + pad2(d.getMinutes())
        + pad2(d.getSeconds());
 }
-function genOrderId(){
-  // ID yang stabil di FE bila backend tidak mengembalikan id
-  return 'WEB-' + yyyymmddHHMM() + '-' + Math.floor(Math.random()*900+100);
-}
-function hhmmNow(){
-  var d=new Date(); return pad2(d.getHours())+':'+pad2(d.getMinutes());
-}
-function plusMinutes(date, m){
-  var d=new Date(date.getTime()); d.setMinutes(d.getMinutes()+m); return d;
-}
-function parseHHMMToDate(hhmm){
-  var p=String(hhmm||'').split(':'); var d=new Date();
-  if (p.length<2) return null;
-  d.setHours(parseInt(p[0],10)||0, parseInt(p[1],10)||0, 0, 0);
-  return d;
-}
+function genOrderId(){ return 'WEB-' + yyyymmddHHMM() + '-' + Math.floor(Math.random()*900+100); }
+function hhmmNow(){ var d=new Date(); return pad2(d.getHours())+':'+pad2(d.getMinutes()); }
+function plusMinutes(date, m){ var d=new Date(date.getTime()); d.setMinutes(d.getMinutes()+m); return d; }
+function parseHHMMToDate(hhmm){ var p=String(hhmm||'').split(':'); var d=new Date(); if (p.length<2) return null; d.setHours(parseInt(p[0],10)||0, parseInt(p[1],10)||0, 0, 0); return d; }
 
 /* =====================
  * PROMO
@@ -62,18 +50,13 @@ function togglePromoControls(){
     if (c) c.hidden = !has;
   }
 }
-
-function clearCoupon(){
-  if (!State.coupon) return;
-  State.coupon = null;
-  togglePromoControls();
-  toast('Kode promo dihapus');
-}
+function clearCoupon(){ if (!State.coupon) return; State.coupon = null; togglePromoControls(); toast('Kode promo dihapus'); }
 
 async function applyCoupon(code){
   var clean = (code || '').trim();
   if (!clean) return toast('Masukkan kode promo');
 
+  // Untuk validasi promo, cukup kirim id/qty/price base (flatten add-on tidak wajib di tahap ini)
   var items = (State.cart || []).map(function(c){ return { id:c.id, qty:c.qty, price:c.price }; });
   var payload = { code: clean, items: items };
 
@@ -82,13 +65,9 @@ async function applyCoupon(code){
 
   var ok = !!(res && (res.ok || res.valid || res.status === 'ok'));
   if (!ok){
-    // Opsional: fallback lokal
     try{
       if (typeof window !== 'undefined' && window.CONFIG && window.CONFIG.PROMO_LOCAL_FALLBACK){
-        var fbmap = {
-          'HEMAT10': { type:'percent', value:10 },
-          'POTONG5': { type:'flat', value:5000 }
-        };
+        var fbmap = { 'HEMAT10': { type:'percent', value:10 }, 'POTONG5': { type:'flat', value:5000 } };
         var fb = fbmap[clean.toUpperCase()];
         if (fb){
           State.coupon = { code: clean.toUpperCase(), type: fb.type, value: fb.value };
@@ -148,7 +127,6 @@ function firstMissingField(desktop){
   if (!nameEl || !String(nameEl.value || '').trim())  return { el:nameEl,  msg:'Nama wajib diisi' };
   if (!phoneEl || !String(phoneEl.value || '').trim()) return { el:phoneEl, msg:'No. HP wajib diisi' };
 
-  // Alamat wajib diisi untuk delivery; untuk pickup boleh kosong
   var mode = (State && State.shipping && State.shipping.mode) ? State.shipping.mode : 'delivery';
   if (mode !== 'pickup' && (!addrEl || !String(addrEl.value || '').trim()))  return { el:addrEl,  msg:'Alamat wajib diisi' };
   return null;
@@ -221,16 +199,170 @@ function markRequiredInputs(){
 }
 
 /* =====================
+ * GATE: wajib ada QUOTE valid sebelum submit
+ * ===================== */
+async function ensureShippingReadyOrFail(){
+  var ship = (State && State.shipping) ? State.shipping : {};
+  var mode = ship && ship.mode ? ship.mode : 'delivery';
+
+  if (mode === 'pickup') return true;
+
+  if (!ship || !ship.dest) {
+    toast('Pilih lokasi pengantaran terlebih dahulu');
+    return false;
+  }
+
+  // Jika sedang kalkulasi → tunggu/paksa
+  if (ship._quoting && window && window.__shipping && typeof window.__shipping.requestQuoteNow === 'function'){
+    try{ await window.__shipping.requestQuoteNow(9000); }catch(_){}
+  }
+  // Belum punya quote → paksa hitung
+  if (!(ship && ship.quote) && window && window.__shipping && typeof window.__shipping.requestQuoteNow === 'function'){
+    try{ await window.__shipping.requestQuoteNow(9000); }catch(_){}
+  }
+
+  ship = (State && State.shipping) ? State.shipping : {};
+  var hasQuote = !!(ship && ship.quote);
+  var deliverable = hasQuote && !(ship.quote && ship.quote.deliverable === false);
+  var feeNum = Number(ship.fee);
+
+  if (!hasQuote) { toast('Ongkir belum terhitung. Mohon tunggu sebentar lalu coba lagi.'); return false; }
+  if (!deliverable) { toast('Alamat di luar jangkauan pengantaran'); return false; }
+  if (!isFinite(feeNum) || feeNum < 0) { toast('Ongkir belum valid. Coba lagi.'); return false; }
+
+  return true;
+}
+
+/* =====================
+ * Guard global (tambahan) — blokir klik/submit kalau belum siap
+ * ===================== */
+function installCheckoutClickGuard(){
+  if (document.__checkoutClickGuardInstalled) return;
+  document.addEventListener('click', function(e){
+    var t=e.target;
+    if (!t) return;
+    var el = t.closest && t.closest('#btnCheckout, #btnCheckoutBar, #btnCheckoutMobile, [data-checkout], .js-checkout, button[name="checkout"], button[data-action="checkout"], a[href*="checkout"], a[href*="payment"], a[href*="pay"]');
+    if (!el) return;
+
+    try{
+      if (window && window.__shipping && typeof window.__shipping.isReadyForCheckout === 'function'){
+        if (!window.__shipping.isReadyForCheckout()){
+          e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+          toast('Ongkir belum terhitung. Mohon tunggu…');
+          try{ window.__shipping.requestQuoteNow(7000); }catch(_){}
+        }
+      }
+    }catch(_){}
+  }, true);
+
+  document.addEventListener('submit', function(e){
+    try{
+      if (window && window.__shipping && typeof window.__shipping.isReadyForCheckout === 'function'){
+        if (!window.__shipping.isReadyForCheckout()){
+          e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+          toast('Ongkir belum terhitung. Mohon tunggu…');
+          try{ window.__shipping.requestQuoteNow(7000); }catch(_){}
+        }
+      }
+    }catch(_){}
+  }, true);
+
+  document.__checkoutClickGuardInstalled = true;
+}
+
+/* =====================
+ * FLATTEN ITEMS (opsi & add-on)
+ * ===================== */
+/**
+ * Mengonversi State.cart menjadi array baris sederhana untuk payload:
+ * - Baris base item: price = base price + opt.price_delta (jika ada)
+ * - Setiap add-on menjadi baris item terpisah: qty = item.qty * addon.qty, price = addon.price
+ * Keluaran: [{ id, name, qty, price }, ...]
+ * Plus metadata arsip: cart_detail (opsi & add-on per item)
+ */
+function buildPayloadItemsFromCart(){
+  var out = [];
+  var detail = [];
+
+  var cart = State.cart || [];
+  for (var i=0;i<cart.length;i++){
+    var c = cart[i] || {};
+    var id = c.id;
+    var name = String(c.name || '');
+    var qty = Number(c.qty || 0);
+    var basePrice = Number(c.price || 0);
+
+    // opsi (opsional)
+    var opt = c.opt || null;
+    var optDelta = (opt && opt.price_delta != null) ? Number(opt.price_delta) : 0;
+    var unitPriceWithOpt = basePrice + optDelta;
+
+    // Baris base item
+    if (qty > 0) {
+      out.push({
+        id: id,
+        name: name,             // nama base (tidak kita ubah agar mapping tetap)
+        qty: qty,
+        price: unitPriceWithOpt // sudah termasuk opsi
+      });
+    }
+
+    // Arsip detail untuk base
+    var rowDetail = {
+      id: id,
+      name: name,
+      qty: qty,
+      base_price: basePrice,
+      opt_label: opt ? (opt.label || opt.key || '') : '',
+      opt_price_delta: optDelta,
+      addons: []
+    };
+
+    // Add-on → flatten jadi baris item terpisah
+    var addons = Array.isArray(c.addons) ? c.addons : [];
+    for (var j=0;j<addons.length;j++){
+      var a = addons[j] || {};
+      var aid = (a.id != null) ? a.id : (a.code != null ? a.code : String(a.name || ''));
+      var aname = String(a.name || a.label || '');
+      var aunitPrice = Number(a.price || 0);
+      var aqPerUnit = Number(a.qty || 0); // qty add-on per 1 unit item utama
+      if (!aname || aqPerUnit <= 0) continue;
+
+      var flatQty = Math.max(0, Math.floor(qty * aqPerUnit));
+      if (flatQty > 0){
+        out.push({
+          id: aid,              // gunakan id add-on asli (tanpa prefix) agar sederhana
+          name: aname,
+          qty: flatQty,
+          price: aunitPrice
+        });
+      }
+
+      rowDetail.addons.push({
+        id: aid,
+        name: aname,
+        price: aunitPrice,
+        qty_per_unit: aqPerUnit,
+        flattened_qty: flatQty
+      });
+    }
+
+    detail.push(rowDetail);
+  }
+
+  return { items: out, cart_detail: detail };
+}
+
+/* =====================
  * CHECKOUT (submit)
  * ===================== */
 async function checkout(desktop){
   if (desktop === void 0) desktop = true;
   if (!(State.cart && State.cart.length)) return toast('Keranjang kosong');
 
-  // rate-limit klik beruntun
   if (checkout._pending) return;
   checkout._pending = true;
-  setCheckoutLoading(true);
+  setCheckoutLoading(true); // spinner ON
 
   try{
     var miss = firstMissingField(desktop);
@@ -238,6 +370,28 @@ async function checkout(desktop){
       if (!desktop){ openDrawer(); setTimeout(function(){ showFieldError(miss.el, miss.msg); }, 120); }
       else { showFieldError(miss.el, miss.msg); }
       return;
+    }
+
+    var ship = (State && State.shipping) ? State.shipping : {};
+    var mode = ship.mode || 'delivery';
+
+    if (mode === 'delivery'){
+      if (!ship.dest){
+        toast('Pilih lokasi pengantaran terlebih dahulu');
+        try{ openDrawer(); }catch(_){}
+        return;
+      }
+      var okShip = await ensureShippingReadyOrFail();
+      if (!okShip) return;
+    } else if (mode === 'pickup'){
+      var t = String(ship.pickup_time || '').trim();
+      var tDate = parseHHMMToDate(t);
+      var minDate = plusMinutes(new Date(), MIN_PICKUP_MINUTES);
+      if (!tDate || tDate < minDate){
+        toast('Waktu ambil minimal ' + MIN_PICKUP_MINUTES + ' menit dari sekarang');
+        try{ openDrawer(); }catch(_){}
+        return;
+      }
     }
 
     var nameEl   = desktop ? byId('cust_name')   : byId('cust_name_m');
@@ -250,80 +404,59 @@ async function checkout(desktop){
     var phone = (phoneEl && phoneEl.value) ? String(phoneEl.value).trim() : '';
     var note  = (noteEl  && noteEl.value)  ? String(noteEl.value).trim()  : '';
 
-    // Normalisasi HP: digit saja (server tetap boleh menerima format bebas)
     var phoneDigits = onlyDigits(phone) || phone;
 
-    // totals dari state (tanpa ongkir)
     var totals = calcTotals();
     var subtotal = totals.subtotal, discount = totals.discount, total = totals.total;
 
-    // detail ongkir dari State.shipping (diisi oleh shipping.js)
-    var ship = (State && State.shipping) ? State.shipping : (typeof window !== 'undefined' && window.State ? (window.State.shipping || {}) : {});
-    ship = ship || {};
-    var mode = ship.mode || 'delivery';
+    ship = (State && State.shipping) ? State.shipping : {};
+    mode = ship.mode || 'delivery';
 
-    // ===== Validasi mode & input pengiriman/pickup =====
-    if (mode === 'delivery'){
-      if (!ship.dest){
-        toast('Pilih lokasi pengantaran terlebih dahulu');
-        try{ openDrawer(); }catch(_){}
-        return;
-      }
-    } else if (mode === 'pickup'){
-      var t = String(ship.pickup_time || '').trim();
-      var tDate = parseHHMMToDate(t);
-      var minDate = plusMinutes(new Date(), MIN_PICKUP_MINUTES);
-      if (!tDate || tDate < minDate){
-        toast('Waktu ambil minimal ' + MIN_PICKUP_MINUTES + ' menit dari sekarang');
-        try{ openDrawer(); }catch(_){}
-        return;
-      }
-    }
-
-    // Aturan bisnis: pickup → ongkir = 0
     var shippingFee = Number(ship.fee || 0);
     if (mode === 'pickup') shippingFee = 0;
-    if (!(shippingFee >= 0)) shippingFee = 0;
+    if (!(shippingFee >= 0) || !isFinite(shippingFee)) shippingFee = 0;
 
-    // Lat/Lng bila ada
+    if (mode === 'delivery' && ship.quote && ship.quote.deliverable === false) {
+      toast('Alamat di luar jangkauan pengantaran');
+      return;
+    }
+
     var lat = null, lng = null;
     if (ship.dest && typeof ship.dest.lat !== 'undefined' && typeof ship.dest.lng !== 'undefined') {
       lat = Number(ship.dest.lat); if (isNaN(lat)) lat = null;
       lng = Number(ship.dest.lng); if (isNaN(lng)) lng = null;
     }
 
-    // Siapkan order_id sisi FE jika backend tidak memberi
     var localOrderId = genOrderId();
 
-    // Payload standar (kompatibel dengan GAS create-order)
+    // === FLATTEN ITEMS ===
+    var built = buildPayloadItemsFromCart(); // { items, cart_detail }
+
     var payload = {
-      order_id: localOrderId,              // FE-generated (server boleh override)
+      order_id: localOrderId,
       customer_name: name,
       phone: phoneDigits,
-      address: addr,                       // alamat customer untuk kwitansi
+      address: addr,
       note: note,
       info: '',
 
-      items: (State.cart || []).map(function(c){
-        return { id: c.id, name: c.name, qty: c.qty, price: c.price };
-      }),
+      // <-- Gunakan items yang sudah flattened (opsi masuk harga base; add-on sebagai baris terpisah)
+      items: built.items,
 
       coupon_code: (State.coupon && State.coupon.code) ? State.coupon.code : '',
       discount_value: discount,
 
-      subtotal: subtotal,
+      subtotal: subtotal,                  // subtotal komprehensif (opsi+addon) dari state.calcTotals()
       total: total,                        // tanpa ongkir
-      grand_total: (total + shippingFee),  // untuk penagihan
+      grand_total: (total + shippingFee),  // final + ongkir
 
-      // ======== kolom yang umum dipakai GAS Sheet ========
       delivery_method: (mode === 'pickup' ? 'pickup' : 'delivery'),
       shipping_fee: shippingFee,
       shipping_address: (mode === 'delivery') ? (ship.address || '') : 'Ambil di Toko',
-      address_text: (ship.address || addr || ''), // bantu fallback di Apps Script
+      address_text: (ship.address || addr || ''),
       lat: lat,
       lng: lng,
 
-      // ======== detail tambahan (tetap aman bila server abaikan) ========
       shipping_mode: mode,
       shipping_dest: (mode === 'delivery') ? (ship.dest || null) : null,
       shipping_eta_min: (mode === 'delivery')
@@ -338,7 +471,7 @@ async function checkout(desktop){
       finish_redirect_url: (typeof location !== 'undefined' ? location.href : '')
     };
 
-    // Fallback ringkasan → "info" supaya tetap tercatat walau backend belum mapping field baru
+    // Arsipkan konfigurasi lengkap (opsional tapi sangat berguna)
     try{
       payload.info = JSON.stringify({
         shipping: {
@@ -350,34 +483,28 @@ async function checkout(desktop){
           distance_km: payload.shipping_distance_km,
           pickup_time: payload.pickup_time_local
         },
+        cart_detail: built.cart_detail,  // opsi + add-on per item (untuk arsip)
         meta: { created_at_local: hhmmNow() }
       });
     }catch(_){ payload.info = ''; }
 
-    // Kirim
     var j = null;
     try { j = await Api.createOrder(payload); } catch (_e) { j = null; }
 
-    // Sukses dengan paymentUrl → arahkan ke Midtrans
     if (j && j.paymentUrl){
-      try{
-        localStorage.setItem('adm_customer', JSON.stringify({name:name, phone:phoneDigits, addr:addr}));
-      }catch(_){}
+      try{ localStorage.setItem('adm_customer', JSON.stringify({name:name, phone:phoneDigits, addr:addr})); }catch(_){}
       try { window.dispatchEvent(new CustomEvent('order:created', { detail:{ order_id: j.id || localOrderId, paymentUrl: j.paymentUrl } })); } catch(_){}
       try { location.href = j.paymentUrl; } catch(_){}
       return;
     }
 
-    // Sukses tanpa paymentUrl (mis. COD / catat saja)
     if (j && (j.ok || j.status === 'ok' || j.id)){
       toast('Pesanan dibuat.');
       try { window.dispatchEvent(new CustomEvent('order:created', { detail:{ order_id: j.id || localOrderId } })); } catch(_){}
-      // Bersihkan keranjang agar tidak dobel submit
       try { State.cart = []; Store.save(); } catch(_){}
       return;
     }
 
-    // Gagal → tampilkan error
     var err = (j && j.error) || 'Gagal membuat transaksi';
     if (err === 'midtrans_error') err = 'Pembayaran tidak tersedia. Coba lagi.';
     toast(err);
@@ -389,9 +516,12 @@ async function checkout(desktop){
     try { window.dispatchEvent(new CustomEvent('order:failed', { detail:{ msg: 'network' } })); } catch(_){}
   } finally {
     checkout._pending = false;
-    setCheckoutLoading(false);
+    setCheckoutLoading(false); // spinner OFF
   }
 }
+
+/* Pasang guard global saat halaman siap */
+document.addEventListener('DOMContentLoaded', installCheckoutClickGuard);
 
 export {
   togglePromoControls,
