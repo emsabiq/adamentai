@@ -2,7 +2,7 @@
 // Cart module: tambah/hapus item, render ringkasan & baris, validasi stok + promo (ES2019-safe)
 
 import { byId, setText, setDisabled, updateCartBadges, toast, money } from './utils.js';
-import { State, Store, getStock } from './state.js';
+import { State, Store, getStock, calcTotals, normalizeCartItem, buildCartKey, computeLineTotals } from './state.js';
 import { Api } from './api.js';
 import { togglePromoControls } from './checkout.js';
 
@@ -23,6 +23,32 @@ function digitsToNumber(x){
   var s = String(x == null ? '' : x).replace(/[^\d.-]/g,'');
   var v = parseFloat(s);
   return isNaN(v) ? 0 : v;
+}
+function sumQtyById(id, exceptIdx){
+  var sid = String(id);
+  var total = 0;
+  var arr = State.cart || [];
+  for (var i=0;i<arr.length;i++){
+    if (i === exceptIdx) continue;
+    if (String(arr[i].id) === sid) total += clampInt(arr[i].qty, 0);
+  }
+  return total;
+}
+
+/* ===== Shipping lock helper (hindari import silang) ===== */
+function shippingCheckoutLocked(){
+  try{
+    var s = State && State.shipping ? State.shipping : {};
+    var mode = s && s.mode ? s.mode : 'delivery';
+    if (mode === 'pickup') return false;
+    if (!s || !s.dest) return true;
+    if (s._quoting) return true;
+    if (!s.quote) return true;
+    if (s.quote && s.quote.deliverable === false) return true;
+    var feeNum = Number(s.fee);
+    if (!isFinite(feeNum) || feeNum < 0) return true;
+    return false;
+  }catch(_){ return false; }
 }
 
 /* =================== Minimum belanja dari kupon =================== */
@@ -66,13 +92,14 @@ function getCouponMin(cp){
   return best;
 }
 
-/* =================== Hitung totals (perhitungkan coupon) =================== */
+/* =================== Hitung totals (pakai state.calcTotals) =================== */
+/** Kompatibilitas ke pemanggil lama: tetap diekspor */
 function calcTotalsLocal() {
-  var subtotal = (State.cart || []).reduce(function (s, c) {
-    return s + (Number(c.qty || 0) * Number(c.price || 0));
-  }, 0);
+  // subtotal/discount/total sudah memperhitungkan opt.price_delta dan addons
+  var totals = calcTotals();
+  var subtotal = totals.subtotal;
 
-  // Cek eligibility minimum belanja (copot instan bila tidak memenuhi)
+  // Validasi minimum kupon pakai subtotal baru
   var cp = State.coupon;
   var must = getCouponMin(cp);
   if (cp && must > 0 && subtotal < must) {
@@ -82,6 +109,7 @@ function calcTotalsLocal() {
     cp = null;
   }
 
+  // Diskon direkalkulasi sesuai kupon aktif
   var discount = 0;
   if (cp) {
     if (cp.type === 'percent') discount = Math.floor(subtotal * (Number(cp.value) || 0) / 100);
@@ -98,6 +126,7 @@ export async function applyCoupon(rawCode) {
   var code = String(rawCode || '').trim();
   if (!code) { toast('Masukkan kode promo'); return; }
 
+  // Payload minimal (id, qty, price) — flatten add-on akan ditangani di checkout.js
   var payload = {
     code: code,
     items: (State.cart || []).map(function (c) {
@@ -143,7 +172,6 @@ export async function applyCoupon(rawCode) {
   State.coupon = { code: code.toUpperCase(), type: type, value: value, min: min };
   if (typeof togglePromoControls === 'function') togglePromoControls();
 
-  // revalidate cepat + render
   revalidateCouponIfNeeded(true);
   renderCart();
   toast('Kode promo diterapkan');
@@ -159,31 +187,52 @@ export function clearCoupon() {
 }
 
 /* =================== Core ops =================== */
-export function addToCart(id, name, price, qty) {
+/**
+ * addToCart dengan dukungan opsi & add-on.
+ * - Tetap backward compatible: pemanggilan lama tanpa opt/addons tetap jalan.
+ * - Merging berdasarkan buildCartKey(id, opt, addons).
+ */
+export function addToCart(id, name, price, qty, opt, addons) {
   if (qty == null) qty = 1;
   qty = clampInt(qty, 1);
 
   var stok = clampInt(getStock(id), 0);
   if (stok <= 0) { toast('Stok habis'); return; }
 
-  var exist = (State.cart || []).find(function (c) { return c.id === id; });
-  var already = exist ? exist.qty : 0;
-  var remaining = stok - already;
+  // Normalisasi calon item
+  var candidate = normalizeCartItem({ id:id, name:name, price:price, qty:qty, opt:opt, addons:addons });
+  var keyCand  = buildCartKey(candidate.id, candidate.opt, candidate.addons);
 
+  // Hitung sisa stok berdasar total qty semua baris dengan id yang sama
+  var alreadyAll = sumQtyById(id, -1); // -1 artinya tidak mengecualikan apa pun (penjumlahan semua)
+  var remaining = Math.max(0, stok - alreadyAll);
   if (remaining <= 0) { toast('Stok tidak cukup (tersisa 0)'); return; }
 
-  var addQty = Math.min(qty, remaining);
-  if (exist) {
-    exist.qty += addQty;
-  } else {
-    State.cart.push({ id: id, name: name, price: Number(price || 0), qty: addQty });
+  var addQty = Math.min(candidate.qty, remaining);
+  if (addQty <= 0) { toast('Stok tidak cukup'); return; }
+  candidate.qty = addQty;
+
+  // Coba merge ke baris yang sama (key sama)
+  var merged = false;
+  for (var i=0;i<(State.cart || []).length;i++){
+    var it = normalizeCartItem(State.cart[i]);
+    var keyExist = buildCartKey(it.id, it.opt, it.addons);
+    if (keyExist === keyCand){
+      it.qty = clampInt(it.qty, 1) + addQty;
+      State.cart[i] = it;
+      merged = true;
+      break;
+    }
+  }
+  if (!merged){
+    State.cart.push(candidate);
   }
 
   Store.save();
-  revalidateCouponIfNeeded(true); // <<< percepat
+  revalidateCouponIfNeeded(true);
   renderCart();
 
-  if (addQty < qty) toast('Stok tidak cukup. Ditambahkan ' + addQty + ' (sisa ' + (stok - (already + addQty)) + ')');
+  if (addQty < qty) toast('Stok tidak cukup. Ditambahkan ' + addQty + ' (sisa ' + (stok - (alreadyAll + addQty)) + ')');
   else toast('Ditambahkan ke keranjang');
 }
 
@@ -198,7 +247,7 @@ export function delCartAt(idx) {
   }
 
   Store.save();
-  revalidateCouponIfNeeded(true); // <<< percepat
+  revalidateCouponIfNeeded(true);
   renderCart();
 }
 
@@ -209,7 +258,7 @@ export function emptyCart() {
     if (typeof togglePromoControls === 'function') togglePromoControls();
   }
   Store.save();
-  revalidateCouponIfNeeded(true); // <<< percepat
+  revalidateCouponIfNeeded(true);
   renderCart();
 }
 
@@ -218,12 +267,17 @@ export function setCartQtyAt(idx, newQty) {
   var c = State.cart && State.cart[idx]; if (!c) return;
 
   var stok = clampInt(getStock(c.id), 0);
-  var v = clampInt(newQty, 1, Math.max(0, stok));
+  // Hitung sisa yang boleh untuk baris ini (kurangi qty baris lain dengan id sama)
+  var others = sumQtyById(c.id, idx);
+  var allowedForThis = Math.max(0, stok - others);
+
+  var v = clampInt(newQty, 1, allowedForThis);
 
   if (v !== c.qty) {
     c.qty = v;
+    State.cart[idx] = normalizeCartItem(c); // konsistenkan skema
     Store.save();
-    revalidateCouponIfNeeded(true); // <<< percepat
+    revalidateCouponIfNeeded(true);
     renderCart();
   }
   if (v < newQty) toast('Melebihi stok tersedia');
@@ -240,15 +294,12 @@ export function renderCart() {
   var subtotal = totals.subtotal, discount = totals.discount, total = totals.total;
   var hasDisc = discount > 0;
 
-  // Ongkir dari State.shipping (diisi oleh shipping.js). Jika keranjang kosong, abaikan ongkir.
   var shipping = (State.cart && State.cart.length) ? Number((State.shipping && State.shipping.fee) || 0) : 0;
   var grand = total + shipping;
 
-  // Totals (ID-based)
   setMoneyText(byId('cartSubtotal'),       subtotal, hasDisc);
   setMoneyText(byId('cartSubtotalMobile'), subtotal, hasDisc);
 
-  // Sembunyikan baris diskon jika tidak ada promo
   var discIdEl = byId('cartDiscount');
   if (discIdEl) {
     var discRow = discIdEl.closest ? discIdEl.closest('.row') : null;
@@ -256,18 +307,15 @@ export function renderCart() {
   }
   setText('cartDiscount', hasDisc ? ('-' + money(discount)) : '');
 
-  // total akhir pakai grand (total + ongkir)
   setText('cartTotal',   money(grand));
   setText('mobileTotal', money(grand));
 
-  // Catatan total: tampil hanya jika ada promo; tambah "+ ongkir" hanya jika ongkir > 0
   var note = hasDisc ? ('Setelah diskon' + (shipping > 0 ? ' + ongkir' : '')) : '';
   setText('cartTotalNote', note);
   setText('cartTotalNoteMobile', note);
   var n1 = byId('cartTotalNote');       if (n1) n1.hidden = !note;
   var n2 = byId('cartTotalNoteMobile'); if (n2) n2.hidden = !note;
 
-  // Totals (data-* hooks)
   var els;
   els = document.querySelectorAll('[data-cart-subtotal]');
   for (var i=0;i<els.length;i++){
@@ -293,21 +341,20 @@ export function renderCart() {
     els[m].textContent = money(grand);
   }
 
-  // juga update #cartShipping kalau shipping.js menyuntikkan elemen ini
   var idShip = byId('cartShipping');
   if (idShip) idShip.textContent = money(shipping);
 
-  // Promo controls state
   if (typeof togglePromoControls === 'function') togglePromoControls();
 
-  // Badge & checkout buttons
-  var count = (State.cart || []).reduce(function (s, c) { return s + c.qty; }, 0);
+  var count = (State.cart || []).reduce(function (s, c) { return s + clampInt(c.qty, 0); }, 0);
   updateCartBadges(count);
+
+  // ⛔ Jangan enable tombol kalau shipping lock masih aktif
+  var lock = shippingCheckoutLocked();
   ['btnCheckout', 'btnCheckoutBar', 'btnCheckoutMobile'].forEach(function(id){
-    setDisabled(id, !(State.cart && State.cart.length));
+    setDisabled(id, !(State.cart && State.cart.length) || lock);
   });
 
-  // Promo pill (opsional)
   var pill = byId('promoApplied');
   if (pill) {
     if (State.coupon) {
@@ -322,7 +369,6 @@ export function renderCart() {
     }
   }
 
-  // Rows
   var tpl = byId('tpl-cart-item');
 
   function renderInto(box) {
@@ -330,25 +376,63 @@ export function renderCart() {
     if (!State.cart || !State.cart.length) { box.innerHTML = '<div class="muted">Belum ada item.</div>'; return; }
 
     box.innerHTML = '';
-    for (var i=0;i<State.cart.length;i++){
+    for (var i2=0;i2<State.cart.length;i2++){
       (function(iIdx){
-        var c = State.cart[iIdx];
+        var c = normalizeCartItem(State.cart[i2]); // pastikan normal
         var row = tpl.content.firstElementChild.cloneNode(true);
 
         var stok = clampInt(getStock(c.id), 0);
-        var safeQty = Math.min(c.qty, Math.max(0, stok));
-        var over = c.qty > stok;
+        // sisa untuk baris ini = stok - qty baris lain (id yang sama)
+        var allowedForThis = Math.max(0, stok - sumQtyById(c.id, i2));
+        var safeQty = Math.min(c.qty, Math.max(0, allowedForThis));
+        var over = c.qty > allowedForThis;
 
+        // Nama + meta (opsi dan add-on)
         var nameEl = row.querySelector('.cart__name');
         if (nameEl) nameEl.textContent = c.name + (stok <= 0 ? ' (Habis)' : '');
 
+        // sisipkan meta (opsi + addons)
+        var metaHost = row.querySelector('.cart__meta');
+        if (!metaHost){
+          // jika template tidak sediakan, tambahkan di bawah nama
+          if (nameEl && nameEl.parentElement){
+            metaHost = document.createElement('div');
+            metaHost.className = 'cart__meta';
+            metaHost.style.fontSize = '12px';
+            metaHost.style.opacity = '0.9';
+            metaHost.style.marginTop = '2px';
+            nameEl.parentElement.insertBefore(metaHost, nameEl.nextSibling);
+          }
+        }
+        if (metaHost){
+          var bits = [];
+          if (c.opt){
+            var pd = (c.opt.price_delta != null) ? Number(c.opt.price_delta) : 0;
+            var optTxt = 'Opsi: ' + (c.opt.label || c.opt.key || '');
+            if (pd > 0) optTxt += ' (+' + money(pd) + ')';
+            if (pd < 0) optTxt += ' (' + money(pd) + ')';
+            bits.push(optTxt);
+          }
+          if (c.addons && c.addons.length){
+            var addStrs = [];
+            for (var ai=0; ai<c.addons.length; ai++){
+              var a = c.addons[ai];
+              addStrs.push(a.name + ' +' + money(a.price) + ' ×' + clampInt(a.qty,0));
+            }
+            bits.push('Add-on: ' + addStrs.join(', '));
+          }
+          metaHost.textContent = bits.join(' • ');
+          if (!bits.length) metaHost.textContent = '';
+        }
+
+        // Qty controls
         var qtyCell = row.querySelector('.cart__qty');
         if (qtyCell) {
           qtyCell.innerHTML =
-            '<div class="qtyctl" data-idx="' + iIdx + '">' +
-            '  <button type="button" class="qdec" aria-label="Kurangi">–</button>' +
-            '  <input class="qinput" type="number" min="1" step="1" value="' + safeQty + '">' +
-            '  <button type="button" class="qinc" aria-label="Tambah">+</button>' +
+            '<div class="qtyctl" data-idx="' + iIdx + '">'+
+            '  <button type="button" class="qdec" aria-label="Kurangi">–</button>'+
+            '  <input class="qinput" type="number" min="1" step="1" value="' + (safeQty || 1) + '">'+
+            '  <button type="button" class="qinc" aria-label="Tambah">+</button>'+
             '</div>';
 
           var wrap = qtyCell.querySelector('.qtyctl');
@@ -356,17 +440,24 @@ export function renderCart() {
           var inc = wrap ? wrap.querySelector('.qinc') : null;
           var inp = wrap ? wrap.querySelector('.qinput') : null;
 
-          if (dec) dec.addEventListener('click', function(){ setCartQtyAt(iIdx, safeQty - 1); });
-          if (inc) inc.addEventListener('click', function(){ setCartQtyAt(iIdx, safeQty + 1); });
+          if (dec) dec.addEventListener('click', function(){ setCartQtyAt(iIdx, clampInt((safeQty || 1) - 1, 1)); });
+          if (inc) inc.addEventListener('click', function(){ setCartQtyAt(iIdx, (safeQty || 1) + 1); });
           if (inp) inp.addEventListener('input', function(){
             var v = clampInt(inp.value, 1);
-            if (stok > 0 && v > stok) { v = stok; toast('Melebihi stok tersedia'); }
+            var allow = Math.max(0, getStock(c.id) - sumQtyById(c.id, iIdx));
+            if (allow > 0 && v > allow) { v = allow; toast('Melebihi stok tersedia'); }
             setCartQtyAt(iIdx, v);
           });
         }
 
+        // Subtotal baris (termasuk opt delta & addons)
         var subEl = row.querySelector('.cart__sub');
-        if (subEl) subEl.textContent = money(safeQty * Number(c.price || 0));
+        if (subEl) {
+          var tmp = _clone(c);
+          tmp.qty = safeQty || 1;
+          var t = computeLineTotals(tmp);
+          subEl.textContent = money(t.line_subtotal);
+        }
 
         if (over) {
           row.classList.add('warn');
@@ -380,14 +471,13 @@ export function renderCart() {
         }
 
         box.appendChild(row);
-      })(i);
+      })(i2);
     }
   }
 
-  renderInto(byId('cartItems'));        // desktop
-  renderInto(byId('cartItemsMobile'));  // mobile
+  renderInto(byId('cartItems'));
+  renderInto(byId('cartItemsMobile'));
 
-  // Re-validate promo tiap render (tetap didebounce, kecil)
   revalidateCouponIfNeeded();
 }
 
@@ -397,20 +487,15 @@ var _promoTO  = null;
 
 function _makePromoKey(){
   if (!State.coupon) return '';
+  // masukkan item id:qty:price saja (payload API tetap sama)
   var items = (State.cart || []).map(function(c){
     return c.id + ':' + c.qty + ':' + c.price;
   }).join(',');
   return State.coupon.code + '|' + items;
 }
 
-/**
- * Revalidate kupon ke server.
- * @param {boolean} immediate - jika true, langsung panggil tanpa debounce
- */
 function revalidateCouponIfNeeded(immediate){
   if (!State.coupon) { _promoKey = ''; return; }
-
-  // Jika sudah dicopot oleh local min-check, jangan lanjut.
   if (!State.coupon) return;
 
   var key = _makePromoKey();
@@ -420,7 +505,6 @@ function revalidateCouponIfNeeded(immediate){
   if (_promoTO) { try{ clearTimeout(_promoTO); }catch(_){} }
 
   var fire = function(){
-    // Jika kupon sudah hilang saat menunggu, batalkan
     if (!State.coupon) return;
 
     var payload = {
@@ -452,37 +536,53 @@ function revalidateCouponIfNeeded(immediate){
         toast('Diskon dibatalkan: respon tidak valid');
         return;
       }
-      // update value & minimum (bila berubah)
       State.coupon = { code: State.coupon.code, type: t, value: v, min: min };
 
-      // Kalau setelah update ternyata subtotal < min, copot instan.
-      var subNow = (State.cart || []).reduce(function (s, c) {
-        return s + (Number(c.qty || 0) * Number(c.price || 0));
-      }, 0);
+      // Pakai subtotal komprehensif (opsi+addon)
+      var subNow = calcTotals().subtotal;
       if (min > 0 && subNow < min){
         State.coupon = null;
         if (typeof togglePromoControls === 'function') togglePromoControls();
         renderCart();
         toast('Diskon dibatalkan: subtotal di bawah minimum');
       }
-    }).catch(function(){ /* network error: abaikan, biar tidak nge-spam */});
+    }).catch(function(){});
   };
 
   if (immediate) fire();
-  else _promoTO = setTimeout(fire, 80); // debounce kecil biar responsif
+  else _promoTO = setTimeout(fire, 80);
 }
 
 /* =================== Stock guard =================== */
 export function validateCartAgainstStock() {
+  // Sesuaikan qty agar total per-ID tidak melebihi stok
+  var arr = State.cart || [];
+  var byId = Object.create(null);
   var changed = false;
-  var newCart = [];
 
-  for (var i=0;i<(State.cart || []).length;i++){
-    var c = State.cart[i];
-    var stok = clampInt(getStock(c.id), 0);
-    if (!stok || stok <= 0) { changed = true; continue; }
-    if (c.qty > stok) { c.qty = stok; changed = true; }
-    newCart.push(c);
+  // Hitung stok dan distribusi qty per baris secara urut
+  for (var i=0;i<arr.length;i++){
+    var c = normalizeCartItem(arr[i]);
+    var id = String(c.id);
+    var stok = clampInt(getStock(id), 0);
+    if (!byId[id]) byId[id] = { used:0, stock:stok };
+
+    var left = Math.max(0, byId[id].stock - byId[id].used);
+    var want = clampInt(c.qty, 0);
+    var take = Math.min(want, left);
+
+    if (take !== want) changed = true;
+    c.qty = take;
+
+    byId[id].used += take;
+    arr[i] = c;
+  }
+
+  // Drop baris yang qty=0
+  var newCart = [];
+  for (var j=0;j<arr.length;j++){
+    if (clampInt(arr[j].qty,0) > 0) newCart.push(arr[j]);
+    else changed = true;
   }
 
   if (changed) {
@@ -493,3 +593,6 @@ export function validateCartAgainstStock() {
     toast('Keranjang disesuaikan dengan stok yang tersedia');
   }
 }
+
+/* ===== util kecil lokal ===== */
+function _clone(o){ return JSON.parse(JSON.stringify(o || {})); }
