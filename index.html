@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Adamentai</title>
+  <title>Adamentai - Order Here</title>
 
   <!-- Styles -->
   <link rel="stylesheet" href="css/app.css" />
@@ -260,6 +260,13 @@
                   <span>Diskon</span>
                   <strong id="cartDiscount" data-cart-discount>-Rp0</strong>
                 </div>
+
+                <!-- Ongkir explicit -->
+                <div class="row">
+                  <span>Ongkir</span>
+                  <strong id="cartShipping" data-cart-shipping>Rp0</strong>
+                </div>
+
                 <div class="row">
                   <span>Total</span>
                   <div style="display:flex;flex-direction:column;align-items:flex-end">
@@ -281,7 +288,7 @@
                 </div>
               </details>
 
-              <button id="btnCheckout" class="btn btn--primary btn--block" disabled>Bayar</button>
+              <button id="btnCheckout" class="btn btn--primary btn--block" data-checkout disabled>Bayar</button>
             </div>
           </div>
         </aside>
@@ -471,7 +478,7 @@
       <div class="small">Total</div>
       <div id="mobileTotal" data-cart-total style="font-weight:800">Rp0</div>
     </div>
-    <button id="btnCheckoutBar" class="btn btn--primary" disabled>Bayar</button>
+    <button id="btnCheckoutBar" class="btn btn--primary" data-checkout disabled>Bayar</button>
   </div>
 
   <!-- Drawer: Mobile Cart -->
@@ -503,6 +510,7 @@
         <div class="drawer-summary" style="margin:8px 0 4px">
           <div><span>Subtotal</span> <span data-cart-subtotal>Rp0</span></div>
           <div><span>Diskon</span>   <span data-cart-discount>-Rp0</span></div>
+          <div><span>Ongkir</span>   <span data-cart-shipping>Rp0</span></div>
         </div>
 
         <!-- Data Customer (Mobile) -->
@@ -523,7 +531,7 @@
           <strong id="mobileTotal" data-cart-total>Rp0</strong>
           <small id="cartTotalNoteMobile" class="muted" style="display:block"></small>
         </div>
-        <button id="btnCheckoutMobile" class="btn btn--primary" disabled>Bayar</button>
+        <button id="btnCheckoutMobile" class="btn btn--primary" data-checkout disabled>Bayar</button>
       </div>
     </div>
   </div>
@@ -596,8 +604,47 @@
     };
   </script>
 
-  <!-- Entry point: ES Module -->
+  <!-- Script order: shipping interlock terlebih dahulu -->
+  <script type="module" src="js/shipping.js"></script>
   <script type="module" src="js/main.js"></script>
-    <script type="module" src="js/shipping.js"></script>
+
+  <!-- Fallback guard (jaga-jaga jika shipping.js terlambat/gagal) -->
+  <script>
+  (function(){
+    function qBtns(){ return Array.prototype.slice.call(document.querySelectorAll('#btnCheckout, #btnCheckoutBar, #btnCheckoutMobile, [data-checkout]')); }
+    function ready(){
+      try{
+        return window.__shipping && typeof window.__shipping.isReadyForCheckout==='function'
+          ? window.__shipping.isReadyForCheckout()
+          : false;
+      }catch(_){ return false; }
+    }
+    function setDisabled(flag){
+      var btns=qBtns();
+      for (var i=0;i<btns.length;i++){
+        var b=btns[i];
+        try{
+          if (b.tagName==='BUTTON' || b.tagName==='INPUT') b.disabled=!!flag;
+          b.style.pointerEvents = flag ? 'none' : '';
+          b.style.opacity = flag ? '0.55' : '';
+          b.style.cursor = flag ? 'not-allowed' : '';
+          b.setAttribute('aria-disabled', flag?'true':'false');
+        }catch(_){}
+      }
+    }
+    document.addEventListener('click', function(e){
+      var el = e.target.closest && e.target.closest('#btnCheckout, #btnCheckoutBar, #btnCheckoutMobile, [data-checkout]');
+      if (!el) return;
+      if (!ready()){
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+        try{ window.__shipping && window.__shipping.requestQuoteNow && window.__shipping.requestQuoteNow(7000); }catch(_){}
+        var sb=document.getElementById('snackbar'); if (sb){ sb.textContent='Ongkir belum terhitung. Mohon tunggu…'; sb.classList.add('show'); setTimeout(function(){ sb.classList.remove('show'); },1300); }
+      }
+    }, true);
+    function tick(){ setDisabled(!ready()); }
+    setInterval(tick, 400);
+    document.addEventListener('DOMContentLoaded', tick);
+  })();
+  </script>
 </body>
 </html>
