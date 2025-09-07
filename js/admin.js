@@ -6,8 +6,9 @@
 
 import { byId, toast, setLoading, money, escapeHTML } from './utils.js';
 import { State } from './state.js';
-import { Api, post } from './api.js';
-import { ADMIN_PIN } from './config.js';
+import { post } from './api.js';           // <-- gunakan post() langsung agar bisa sisipkan admin_token
+import { ADMIN_PIN } from './config.js';   // <-- server akan cek isAdmin_(b) dengan Script Property ADMIN_TOKEN
+                                           //     samakan nilainya dengan ADMIN_PIN ini agar lolos otorisasi
 
 /* =====================
  * POLYFILLS & HELPERS
@@ -15,11 +16,7 @@ import { ADMIN_PIN } from './config.js';
 // CustomEvent polyfill (Safari lama)
 (function () {
   if (typeof window === 'undefined') return;
-  try {
-    // eslint-disable-next-line no-new
-    new window.CustomEvent('test');
-    return;
-  } catch (e) {}
+  try { new window.CustomEvent('test'); return; } catch (e) {}
   function CustomEvent(event, params) {
     params = params || { bubbles: false, cancelable: false, detail: null };
     var evt = document.createEvent('CustomEvent');
@@ -62,6 +59,75 @@ function lsGet(key, def) {
 }
 function lsSet(key, val) {
   try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
+}
+
+/* =====================
+ * ADMIN TOKEN (FIX UNAUTHORIZED)
+ * ===================== */
+function getAdminToken() {
+  // Pakai ADMIN_PIN sebagai admin_token untuk backend Apps Script (isAdmin_)
+  // Pastikan Script Property ADMIN_TOKEN di server = ADMIN_PIN ini.
+  return ADMIN_PIN || '';
+}
+function withAdminToken(obj) {
+  obj = obj || {};
+  obj.admin_token = getAdminToken();
+  return obj;
+}
+
+/* =====================
+ * IMAGE COMPRESS (CLIENT)
+ * ===================== */
+const IMG_MAX_W = 1200;
+const IMG_MAX_H = 1200;
+const IMG_MIME  = 'image/jpeg';
+const IMG_QLTY  = 0.82;
+
+function readFileAsDataURL(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+function loadImageFromDataURL(dataUrl) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = rej;
+    img.src = dataUrl;
+  });
+}
+async function compressImageToDataURL(file) {
+  // Baca file ke dataURL lalu resize → toDataURL(JPEG, quality)
+  const dataUrl = await readFileAsDataURL(file);
+  const img = await loadImageFromDataURL(dataUrl);
+
+  // Hitung dimensi
+  let { width: w, height: h } = img;
+  if (w <= IMG_MAX_W && h <= IMG_MAX_H) {
+    // Tetap kompres ulang ke JPEG agar ukuran turun dan format konsisten
+    const canvas0 = document.createElement('canvas');
+    canvas0.width = w; canvas0.height = h;
+    const ctx0 = canvas0.getContext('2d');
+    ctx0.drawImage(img, 0, 0, w, h);
+    return canvas0.toDataURL(IMG_MIME, IMG_QLTY);
+  }
+
+  const ratio = Math.min(IMG_MAX_W / w, IMG_MAX_H / h);
+  const nw = Math.max(1, Math.round(w * ratio));
+  const nh = Math.max(1, Math.round(h * ratio));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = nw; canvas.height = nh;
+  const ctx = canvas.getContext('2d');
+
+  // Draw scaled
+  ctx.drawImage(img, 0, 0, nw, nh);
+
+  // Export JPEG terkompres
+  return canvas.toDataURL(IMG_MIME, IMG_QLTY);
 }
 
 /* =====================
@@ -312,8 +378,6 @@ export function renderAdminTables() {
       var t = e.target;
       if (!t) return;
 
-      // >>> HILANGKAN click-to-edit di cell nama (DIHAPUS)
-
       // quick toggle aktif
       var qa = (t.classList && t.classList.contains('quick-active')) ? t : (t.closest ? t.closest('.quick-active') : null);
       if (qa) {
@@ -344,17 +408,18 @@ async function quickToggleActive(m) {
   var payload = {};
   for (var k in m) if (Object.prototype.hasOwnProperty.call(m, k)) payload[k] = m[k];
   payload.active = !m.active;
+  withAdminToken(payload);
 
   var tbl = byId('tblMenu');
   var cell = tbl ? tbl.querySelector('tr[data-id="' + cssEsc(String(m.id)) + '"] .quick-active') : null;
   if (cell) cell.textContent = payload.active ? 'Y' : 'N';
 
-  var j;
-  try { j = await Api.menuSave(payload); }
+  let j;
+  try { j = await post('menu-save', payload, true); }
   catch (e) { j = { ok: false }; }
 
   if (!j || !j.ok) {
-    toast('Gagal toggle aktif');
+    toast('Gagal toggle aktif' + (j && j.error ? (': ' + j.error) : ''));
     if (cell) cell.textContent = m.active ? 'Y' : 'N';
     return;
   }
@@ -383,30 +448,45 @@ function updatePricePreview() {
 }
 
 export async function saveMenu() {
+  // 1) ambil input
   var image_url = (function () {
     var el = byId('m_image_url'); return el ? (el.value || '') : '';
   })();
   var fileEl = byId('m_img');
   var f = (fileEl && fileEl.files && fileEl.files[0]) ? fileEl.files[0] : null;
 
+  // 2) upload foto (terkompres)
   if (f) {
     var okTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     if (okTypes.indexOf(f.type) === -1) { toast('Format gambar harus JPG/PNG/WebP/GIF'); return; }
-    if (f.size > 3 * 1024 * 1024) { toast('Ukuran foto > 3MB'); return; }
+    if (f.size > 7 * 1024 * 1024) { toast('Ukuran foto mentah > 7MB. Pilih foto lain.'); return; }
 
-    var data_url = await new Promise(function (res, rej) {
-      var r = new FileReader(); r.onload = function () { res(r.result); }; r.onerror = rej; r.readAsDataURL(f);
-    });
+    let data_url;
+    try {
+      // Kompres → JPEG 0.82, max 1200px
+      data_url = await compressImageToDataURL(f);
+    } catch (e) {
+      // fallback: kirim apa adanya
+      data_url = await readFileAsDataURL(f);
+    }
+
     var upBtn = byId('btnMenuSave'); setLoading(upBtn, true);
-    var up;
-    try { up = await Api.uploadImage(data_url, f.name); }
-    catch (e) { up = { ok: false }; }
+    let up;
+    try {
+      // Gunakan endpoint upload-image dengan admin_token
+      up = await post('upload-image', withAdminToken({ data_url, name: f.name || ('img-' + Date.now() + '.jpg') }), true);
+    } catch (e) { up = { ok: false, error: String(e && e.message || e) }; }
     setLoading(upBtn, false);
-    if (!up || !up.ok) { toast('Upload foto gagal' + (up && up.error ? (': ' + up.error) : '')); return; }
+
+    if (!up || !up.ok) {
+      toast('Upload foto gagal' + (up && up.error ? (': ' + up.error) : ''));
+      return;
+    }
     image_url = up.url;
     var iu = byId('m_image_url'); if (iu) iu.value = image_url;
   }
 
+  // 3) payload simpan menu
   var payload = {
     id: (function () { var el = byId('m_id'); return el ? (el.value || undefined) : undefined; })(),
     name: (function () { var el = byId('m_name'); return (el ? el.value : '').trim(); })(),
@@ -417,25 +497,34 @@ export async function saveMenu() {
     image_url: image_url
   };
   if (!payload.name) { toast('Nama menu wajib diisi'); return; }
+  withAdminToken(payload);
 
+  // 4) simpan
   var btn = byId('btnMenuSave'); setLoading(btn, true);
-  var j2;
-  try { j2 = await Api.menuSave(payload); }
-  catch (e2) { j2 = { ok: false }; }
+  let j2;
+  try { j2 = await post('menu-save', payload, true); }
+  catch (e2) { j2 = { ok: false, error: String(e2 && e2.message || e2) }; }
   setLoading(btn, false);
-  if (!j2 || !j2.ok) { toast((j2 && j2.error) || 'Gagal simpan'); return; }
+
+  if (!j2 || !j2.ok) {
+    const msg = (j2 && j2.error) || 'Gagal simpan';
+    toast(msg);
+    if (/unauthorized/i.test(String(msg))) {
+      toast('Cek: ADMIN_TOKEN (server) harus sama dengan ADMIN_PIN (config.js)');
+    }
+    return;
+  }
   toast('Menu tersimpan');
   resetMenuForm();
-
   window.dispatchEvent(new CustomEvent('adm:changed', { detail: { scope: 'menu' } }));
 }
 
 export async function delMenu(id) {
   if (!id) return;
   if (!window.confirm('Hapus menu ini?')) return;
-  var j;
-  try { j = await Api.menuDel(id); }
-  catch (e) { j = { ok: false }; }
+  let j;
+  try { j = await post('menu-del', withAdminToken({ id: id }), true); }
+  catch (e) { j = { ok: false, error: String(e && e.message || e) }; }
   if (!j || !j.ok) { toast((j && j.error) || 'Gagal hapus'); return; }
   toast('Terhapus');
   window.dispatchEvent(new CustomEvent('adm:changed', { detail: { scope: 'menu' } }));
@@ -546,6 +635,7 @@ export async function saveCat() {
     name: (function () { var el = byId('c_name'); return (el ? el.value : '').trim(); })()
   };
   if (!payload.name) { toast('Nama kategori wajib diisi'); return; }
+  withAdminToken(payload);
 
   var btn = byId('btnCatSave'); setLoading(btn, true);
   var j;
@@ -562,7 +652,7 @@ export async function delCat(id) {
   if (!id) return;
   if (!window.confirm('Hapus kategori ini?')) return;
   var j;
-  try { j = await post('cat-del', { id: id }, true); }
+  try { j = await post('cat-del', withAdminToken({ id: id }), true); }
   catch (e) { j = { ok: false }; }
   if (!j || !j.ok) { toast((j && j.error) || 'Gagal hapus'); return; }
   toast('Terhapus');
@@ -590,7 +680,7 @@ export async function saveStock() {
 
   var btn = byId('btnStockSave'); setLoading(btn, true);
   var j;
-  try { j = await Api.stockAdjust({ item_id: item_id, delta: delta, note: note }); }
+  try { j = await post('stock-adjust', withAdminToken({ item_id: item_id, delta: delta, note: note }), true); }
   catch (e) { j = { ok: false }; }
   setLoading(btn, false);
 
@@ -618,7 +708,6 @@ export function renderPromoTable(promos) {
     var periode = (start || end) ? (start || '—') + ' → ' + (end || '—') : '-';
     html.push(
       '<tr data-id="' + escapeHTML(String(p.id)) + '">' +
-      // >>> HILANGKAN dblclick-to-edit: hapus class "dbl-edit"
       '  <td>' + escapeHTML(p.code) + '</td>' +
       '  <td>' + (p.type === 'percent' ? '%' : 'Rp') + '</td>' +
       '  <td class="right">' + (p.type === 'percent' ? (String(p.value) + '%') : money(p.value)) + '</td>' +
@@ -665,8 +754,6 @@ export function renderPromoTable(promos) {
         }
       }
     });
-
-    // >>> HILANGKAN double click edit (DIHAPUS)
   }
 
   ensurePromoUX();
@@ -676,13 +763,14 @@ async function quickTogglePromoActive(p) {
   var payload = {};
   for (var k in p) if (Object.prototype.hasOwnProperty.call(p, k)) payload[k] = p[k];
   payload.active = !p.active;
+  withAdminToken(payload);
 
   var tbl = byId('tblPromo');
   var cell = tbl ? tbl.querySelector('tr[data-id="' + cssEsc(String(p.id)) + '"] .promo-active') : null;
   if (cell) cell.textContent = payload.active ? 'Y' : 'N';
 
   var j;
-  try { j = await Api.promoSave(payload); }
+  try { j = await post('promo-save', payload, true); }
   catch (e) { j = { ok: false }; }
   if (!j || !j.ok) {
     toast('Gagal toggle promo');
@@ -743,10 +831,11 @@ async function savePromoInternal() {
   if (!payload.code) { toast('Kode wajib diisi'); return; }
   if (!(payload.value > 0)) { toast('Nilai promo harus > 0'); return; }
   if (!validatePromoPeriod(payload.start, payload.end)) { toast('Periode tidak valid (akhir < mulai)'); return; }
+  withAdminToken(payload);
 
   var btn = byId('btnPromoSave'); setLoading(btn, true);
   var j;
-  try { j = await Api.promoSave(payload); }
+  try { j = await post('promo-save', payload, true); }
   catch (e) { j = { ok: false }; }
   setLoading(btn, false);
   if (!j || !j.ok) { toast((j && j.error) || 'Gagal simpan promo'); return; }
@@ -761,7 +850,7 @@ export async function delPromo(id) {
   if (!id) return;
   if (!window.confirm('Hapus promo ini?')) return;
   var j;
-  try { j = await Api.promoDel(id); }
+  try { j = await post('promo-del', withAdminToken({ id }), true); }
   catch (e) { j = { ok: false }; }
   if (!j || !j.ok) { toast((j && j.error) || 'Gagal hapus'); return; }
   toast('Promo terhapus');
