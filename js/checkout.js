@@ -56,6 +56,7 @@ async function applyCoupon(code){
   var clean = (code || '').trim();
   if (!clean) return toast('Masukkan kode promo');
 
+  // Untuk validasi promo, cukup kirim id/qty/price base (flatten add-on tidak wajib di tahap ini)
   var items = (State.cart || []).map(function(c){ return { id:c.id, qty:c.qty, price:c.price }; });
   var payload = { code: clean, items: items };
 
@@ -270,6 +271,89 @@ function installCheckoutClickGuard(){
 }
 
 /* =====================
+ * FLATTEN ITEMS (opsi & add-on)
+ * ===================== */
+/**
+ * Mengonversi State.cart menjadi array baris sederhana untuk payload:
+ * - Baris base item: price = base price + opt.price_delta (jika ada)
+ * - Setiap add-on menjadi baris item terpisah: qty = item.qty * addon.qty, price = addon.price
+ * Keluaran: [{ id, name, qty, price }, ...]
+ * Plus metadata arsip: cart_detail (opsi & add-on per item)
+ */
+function buildPayloadItemsFromCart(){
+  var out = [];
+  var detail = [];
+
+  var cart = State.cart || [];
+  for (var i=0;i<cart.length;i++){
+    var c = cart[i] || {};
+    var id = c.id;
+    var name = String(c.name || '');
+    var qty = Number(c.qty || 0);
+    var basePrice = Number(c.price || 0);
+
+    // opsi (opsional)
+    var opt = c.opt || null;
+    var optDelta = (opt && opt.price_delta != null) ? Number(opt.price_delta) : 0;
+    var unitPriceWithOpt = basePrice + optDelta;
+
+    // Baris base item
+    if (qty > 0) {
+      out.push({
+        id: id,
+        name: name,             // nama base (tidak kita ubah agar mapping tetap)
+        qty: qty,
+        price: unitPriceWithOpt // sudah termasuk opsi
+      });
+    }
+
+    // Arsip detail untuk base
+    var rowDetail = {
+      id: id,
+      name: name,
+      qty: qty,
+      base_price: basePrice,
+      opt_label: opt ? (opt.label || opt.key || '') : '',
+      opt_price_delta: optDelta,
+      addons: []
+    };
+
+    // Add-on → flatten jadi baris item terpisah
+    var addons = Array.isArray(c.addons) ? c.addons : [];
+    for (var j=0;j<addons.length;j++){
+      var a = addons[j] || {};
+      var aid = (a.id != null) ? a.id : (a.code != null ? a.code : String(a.name || ''));
+      var aname = String(a.name || a.label || '');
+      var aunitPrice = Number(a.price || 0);
+      var aqPerUnit = Number(a.qty || 0); // qty add-on per 1 unit item utama
+      if (!aname || aqPerUnit <= 0) continue;
+
+      var flatQty = Math.max(0, Math.floor(qty * aqPerUnit));
+      if (flatQty > 0){
+        out.push({
+          id: aid,              // gunakan id add-on asli (tanpa prefix) agar sederhana
+          name: aname,
+          qty: flatQty,
+          price: aunitPrice
+        });
+      }
+
+      rowDetail.addons.push({
+        id: aid,
+        name: aname,
+        price: aunitPrice,
+        qty_per_unit: aqPerUnit,
+        flattened_qty: flatQty
+      });
+    }
+
+    detail.push(rowDetail);
+  }
+
+  return { items: out, cart_detail: detail };
+}
+
+/* =====================
  * CHECKOUT (submit)
  * ===================== */
 async function checkout(desktop){
@@ -345,6 +429,9 @@ async function checkout(desktop){
 
     var localOrderId = genOrderId();
 
+    // === FLATTEN ITEMS ===
+    var built = buildPayloadItemsFromCart(); // { items, cart_detail }
+
     var payload = {
       order_id: localOrderId,
       customer_name: name,
@@ -353,14 +440,13 @@ async function checkout(desktop){
       note: note,
       info: '',
 
-      items: (State.cart || []).map(function(c){
-        return { id: c.id, name: c.name, qty: c.qty, price: c.price };
-      }),
+      // <-- Gunakan items yang sudah flattened (opsi masuk harga base; add-on sebagai baris terpisah)
+      items: built.items,
 
       coupon_code: (State.coupon && State.coupon.code) ? State.coupon.code : '',
       discount_value: discount,
 
-      subtotal: subtotal,
+      subtotal: subtotal,                  // subtotal komprehensif (opsi+addon) dari state.calcTotals()
       total: total,                        // tanpa ongkir
       grand_total: (total + shippingFee),  // final + ongkir
 
@@ -385,6 +471,7 @@ async function checkout(desktop){
       finish_redirect_url: (typeof location !== 'undefined' ? location.href : '')
     };
 
+    // Arsipkan konfigurasi lengkap (opsional tapi sangat berguna)
     try{
       payload.info = JSON.stringify({
         shipping: {
@@ -396,6 +483,7 @@ async function checkout(desktop){
           distance_km: payload.shipping_distance_km,
           pickup_time: payload.pickup_time_local
         },
+        cart_detail: built.cart_detail,  // opsi + add-on per item (untuk arsip)
         meta: { created_at_local: hhmmNow() }
       });
     }catch(_){ payload.info = ''; }
