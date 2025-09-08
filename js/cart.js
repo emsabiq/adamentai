@@ -450,25 +450,121 @@ export function renderCart() {
           });
         }
 
-        // Subtotal baris (termasuk opt delta & addons)
-        var subEl = row.querySelector('.cart__sub');
-        if (subEl) {
-          var tmp = _clone(c);
-          tmp.qty = safeQty || 1;
-          var t = computeLineTotals(tmp);
-          subEl.textContent = money(t.line_subtotal);
-        }
+// Subtotal baris (termasuk opt delta & addons)
+var subEl = row.querySelector('.cart__sub');
+if (subEl) {
+  var tmp = _clone(c);
+  tmp.qty = safeQty || 1;
+  var t = computeLineTotals(tmp);
+  subEl.textContent = money(t.line_subtotal);
+}
 
-        if (over) {
-          row.classList.add('warn');
-          row.title = 'Melebihi stok. Stok tersedia: ' + stok;
-        }
+// Warning stok (tetap)
+if (over) {
+  row.classList.add('warn');
+  row.title = 'Melebihi stok. Stok tersedia: ' + stok;
+}
 
-        var delBtn = row.querySelector('.cart__del');
-        if (delBtn){
-          if (delBtn.addEventListener) delBtn.addEventListener('click', function(){ delCartAt(iIdx); });
-          else delBtn.onclick = function(){ delCartAt(iIdx); };
-        }
+/* ===== SUSUN ULANG: kiri (nama+meta) | kanan (qty, harga, X) ===== */
+(function layoutCartRow(hostRow, idx){
+  var nameEl  = hostRow.querySelector('.cart__name');
+  var metaEl  = hostRow.querySelector('.cart__meta');
+  var qtyCell = hostRow.querySelector('.cart__qty');
+  var priceEl = hostRow.querySelector('.cart__sub');
+
+  // ==== RESPONSIVE PARAMS ====
+  var vw = (window.innerWidth || document.documentElement.clientWidth || 0);
+  var isWide = vw >= 768;                      // desktop/tablet lebar
+  var PRICE_MIN = isWide ? 120 : 88;          // lebar kolom nominal
+  var GAP_RIGHT = isWide ? 14 : 10;           // jarak antar elemen kanan
+  var BTN_SIZE  = isWide ? 30 : 28;           // diameter bubble X
+
+  // ROW sebagai flex satu baris
+  hostRow.style.display    = 'flex';
+  hostRow.style.alignItems = 'center';
+  hostRow.style.flexWrap   = 'nowrap';
+  hostRow.style.gap        = '12px';
+  hostRow.style.paddingRight = '0';
+
+  // ----- KIRI: nama + meta (biarkan fleksibel & tidak pecah per huruf) -----
+  var left = hostRow.querySelector('.cart__leftwrap');
+  if (!left) {
+    left = document.createElement('div');
+    left.className = 'cart__leftwrap';
+    hostRow.insertBefore(left, hostRow.firstChild);
+  }
+  left.style.flex = isWide ? '1 1 65%' : '1 1 auto';
+  left.style.minWidth = '0';
+
+  if (nameEl && nameEl.parentNode !== left) left.appendChild(nameEl);
+  if (metaEl && metaEl.parentNode !== left) left.appendChild(metaEl);
+
+  if (nameEl){
+    // ⛔ Override style global yang mungkin pakai break-all
+    nameEl.style.setProperty('white-space', 'normal', 'important');
+    nameEl.style.setProperty('word-break',  'normal', 'important');
+    nameEl.style.setProperty('overflow-wrap','break-word', 'important'); // tidak putus di tengah huruf
+    nameEl.style.marginRight = '0';
+  }
+
+  // ----- KANAN: qty, harga, tombol X sejajar -----
+  var right = hostRow.querySelector('.cart__rightwrap');
+  if (!right) {
+    right = document.createElement('div');
+    right.className = 'cart__rightwrap';
+    hostRow.appendChild(right);
+  }
+  right.style.flex = '0 0 auto';
+  right.style.display = 'flex';
+  right.style.alignItems = 'center';
+  right.style.justifyContent = 'flex-end';
+  right.style.gap = GAP_RIGHT + 'px';
+
+  if (qtyCell && qtyCell.parentNode !== right) {
+    qtyCell.style.margin = '0';
+    qtyCell.style.flex = '0 0 auto';
+    right.appendChild(qtyCell);
+  }
+
+  if (priceEl){
+    priceEl.style.textAlign = 'right';
+    priceEl.style.display   = 'inline-block';
+    priceEl.style.minWidth  = PRICE_MIN + 'px';
+    priceEl.style.margin    = '0';
+    if (priceEl.parentNode !== right) right.appendChild(priceEl);
+  }
+
+  // Tombol X (paling kanan, tidak absolute)
+  var btn = hostRow.querySelector('.cart__del');
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cart__del';
+    btn.textContent = '×';
+    btn.setAttribute('aria-label','Hapus item');
+  }
+  btn.style.flex = '0 0 auto';
+  btn.style.width = BTN_SIZE + 'px';
+  btn.style.height = BTN_SIZE + 'px';
+  btn.style.borderRadius = '9999px';
+  btn.style.border = '1px solid rgba(148,163,184,.35)';
+  btn.style.display = 'inline-flex';
+  btn.style.alignItems = 'center';
+  btn.style.justifyContent = 'center';
+  btn.style.background = '#fff';
+  btn.style.fontSize = (isWide ? 17 : 16) + 'px';
+  btn.style.lineHeight = '1';
+  btn.style.cursor = 'pointer';
+  btn.style.color = '#0f172a';
+  btn.style.opacity = '0.9';
+  btn.style.boxShadow = '0 1px 2px rgba(15,23,42,.08)';
+  btn.style.setProperty('position','static','important'); // pastikan bukan absolute
+
+  if (btn.parentNode !== right) right.appendChild(btn);
+  if (!btn._wired){ btn.addEventListener('click', function(){ delCartAt(idx); }); btn._wired = true; }
+})(row, iIdx);
+
+
 
         box.appendChild(row);
       })(i2);
