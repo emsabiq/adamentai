@@ -525,28 +525,77 @@ function setDestination(lat,lng,labelText){
 }
 
 // ================= Berat controls =================
+// ================= Berat controls (fix: bisa ketik manual, tidak otomatis balik ke 1) =================
 function bindWeightControls(){
-  var chipsD=document.querySelectorAll('#wgChips .wg-chip');
-  var chipsM=document.querySelectorAll('#wgChips_m .wg-chip');
-  function mark(nodes,val){
-    for(var i=0;i<nodes.length;i++){
+  var chipsD = document.querySelectorAll('#wgChips .wg-chip');
+  var chipsM = document.querySelectorAll('#wgChips_m .wg-chip');
+
+  function mark(nodes, val){
+    var num = Number(val);
+    for (var i=0; i<nodes.length; i++){
       var n = nodes[i];
-      n.classList.toggle('is-on', Number(n.getAttribute('data-wg'))===Number(val));
+      var on = (Number(n.getAttribute('data-wg')) === num);
+      if (on) n.classList.add('is-on'); else n.classList.remove('is-on');
     }
   }
-  function setWeight(val,src){
-    val=Math.max(0.1, Number(val)||1);
-    var iD=byId('shipWeight'); var iM=byId('shipWeight_m');
-    if(iD) iD.value=String(val); if(iM) iM.value=String(val);
-    mark(chipsD,val); mark(chipsM,val);
-    if(src!=='init') quoteIfReady();
+
+  // Saat KOMIT (klik chip / blur / change / Enter) -> normalisasi + tulis balik + quoteIfReady
+  function commitWeight(val, src){
+    var raw = String(val == null ? '' : val).trim().replace(',', '.'); // izinkan koma
+    var num = Number(raw);
+    if (!isFinite(num) || num <= 0) num = 1;
+    num = Math.max(0.1, num);
+    // pembulatan ringan 2 desimal biar rapi
+    num = Math.round(num * 100) / 100;
+
+    var iD = byId('shipWeight');
+    var iM = byId('shipWeight_m');
+    if (iD) iD.value = String(num);
+    if (iM) iM.value = String(num);
+
+    mark(chipsD, num); mark(chipsM, num);
+    if (src !== 'init') quoteIfReady();
   }
-  for (var c=0;c<chipsD.length;c++){ (function(b){ b.addEventListener('click', function(){ setWeight(b.getAttribute('data-wg')); }); })(chipsD[c]); }
-  for (var cm=0;cm<chipsM.length;cm++){ (function(b){ b.addEventListener('click', function(){ setWeight(b.getAttribute('data-wg')); }); })(chipsM[cm]); }
-  var wD = byId('shipWeight');  if (wD)  wD.addEventListener('input', function(){ setWeight(byId('shipWeight').value); });
-  var wM = byId('shipWeight_m');if (wM)  wM.addEventListener('input', function(){ setWeight(byId('shipWeight_m').value); });
-  setWeight(1,'init');
+
+  // Saat sedang KETIK -> hanya update highlight kalau valid, jangan tulis balik
+  function liveWeight(val){
+    var raw = String(val == null ? '' : val).trim().replace(',', '.');
+    var num = Number(raw);
+    if (isFinite(num) && num > 0){
+      mark(chipsD, num); mark(chipsM, num);
+    }
+    // tidak menulis ke input -> caret & teks pengguna aman
+  }
+
+  // Bind chips (commit langsung)
+  for (var c=0; c<chipsD.length; c++){
+    (function(b){ b.addEventListener('click', function(){ commitWeight(b.getAttribute('data-wg'), 'chip'); }); })(chipsD[c]);
+  }
+  for (var cm=0; cm<chipsM.length; cm++){
+    (function(b){ b.addEventListener('click', function(){ commitWeight(b.getAttribute('data-wg'), 'chip'); }); })(chipsM[cm]);
+  }
+
+  // Bind input desktop & mobile
+  var wD = byId('shipWeight');
+  var wM = byId('shipWeight_m');
+
+  function bindInput(inp){
+    if (!inp) return;
+    inp.addEventListener('input',  function(){ liveWeight(inp.value); });         // ketik bebas
+    inp.addEventListener('blur',   function(){ commitWeight(inp.value, 'commit'); }); // saat selesai
+    inp.addEventListener('change', function(){ commitWeight(inp.value, 'commit'); });
+    inp.addEventListener('keydown', function(e){
+      var k = e.key || e.keyCode;
+      if (k === 'Enter' || k === 13) commitWeight(inp.value, 'commit');
+    });
+  }
+  bindInput(wD);
+  bindInput(wM);
+
+  // Nilai awal
+  commitWeight(1, 'init');
 }
+
 
 // ================= Pickup time controls =================
 var _pickupMinTimer=null;
